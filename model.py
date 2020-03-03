@@ -15,13 +15,15 @@ class Deconvolver(nn.Module):
         self.n_in = n_in
 
         self.initial_linear = nn.Linear(n_in, n_in * n_out ** 2)
-        self.up1 = UNetModule(n_in, 3 * n_in)
-        self.up2 = UNetModule(3 * n_in, 9 * n_in)
-        self.up3 = UNetModule(9 * n_in, 27 * n_in)
-        self.up4 = UNetModule(27 * n_in, n_in)
+        self.metos_batch_norm = nn.BatchNorm1d(8)
+        self.up1 = UNetModule(n_in, 2 * n_in)
+        self.up2 = UNetModule(2 * n_in, 4 * n_in)
+        self.up3 = UNetModule(4 * n_in, 8 * n_in)
+        self.up4 = UNetModule(8 * n_in, n_in)
         self.conv_final = nn.Conv2d(n_in, 1, kernel_size=1)
 
     def forward(self, x):
+        x = self.metos_batch_norm(x)
         x_ = self.initial_linear(x)
         x_ = x_.reshape(x.shape[0], self.n_in, self.n_out, self.n_out)
         layers = nn.Sequential(
