@@ -20,24 +20,25 @@ importlib.reload(data)
 importlib.reload(model)
 importlib.reload(train)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-opts = Dict({"lr": 1e-4, "n_iter": 1001, "save_every" : 500, "noise_dim" : 2, "disc_step" : 1})
+opts = Dict({"lr": 1e-4, "n_epoch": 1001, "save_every" : 500, "noise_dim" : 2, "disc_step" : 1})
 
 clouds = data.LowClouds("/scratch/sankarak/data/low_clouds/", 10)
 loader = DataLoader(clouds, batch_size=10)
-x = next(iter(loader))["metos"]
-noise = torch.randn(x.shape[0], opts["noise_dim"]).to(device)
-
 dec = model.Deconvolver(8, 128, opts["noise_dim"])
 dec = dec.to(device)
 
 disc = MultiDiscriminator(in_channels=1, device=device).to(device)
+models = {"g": dec, "d": disc}
+
 for sample in loader:
     x = sample["real_imgs"].to(device)
     print("Discriminator Loss : ", disc.compute_loss(x, 1))
 
 
-dec_optimizer = torch.optim.Adam(dec.parameters(), lr=opts["lr"])
-disc_optimizer = torch.optim.Adam(disc.parameters(), lr=opts["lr"])
+optimizers = Dict({
+    "g": torch.optim.Adam(dec.parameters(), lr=opts["lr"]),
+    "d": torch.optim.Adam(disc.parameters(), lr=opts["lr"])
+})
 
 def save_images(dec, loader, i):
     for sample in loader:
@@ -53,11 +54,11 @@ def save_images(dec, loader, i):
         save_image(y_mean, f"mean_imgs_{i}.png")
 
 
-for i in range(opts.n_iter):
+for i in range(opts.n_epoch):
 
     for j in range(opts["disc_step"]):
-        disc, disc_avg_loss = train.train(dec, loader, disc_optimizer, nn.MSELoss(), device, discriminator=disc, is_training_discriminator=True)
-    dec, dec_avg_loss = train.train(dec, loader, dec_optimizer, nn.MSELoss(), device, discriminator=disc, is_training_discriminator=False)
+        disc, disc_avg_loss = train.train(dec, loader, optimizers.d, nn.MSELoss(), device, discriminator=disc, is_training_discriminator=True)
+    dec, dec_avg_loss = train.train(dec, loader, optimizers.g, nn.MSELoss(), device, discriminator=disc, is_training_discriminator=False)
     if i % opts.save_every == 0:
         save_images(dec, loader, i)
     print(f"Discriminator loss : {disc_avg_loss} - Generator loss : {dec_avg_loss}")
