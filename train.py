@@ -7,7 +7,7 @@
 import torch
 import torch.nn as nn
 
-def train(model, iterator, optimizer, loss_fun, device, noise_dim=2):
+def train(model, iterator, optimizer, loss_fun, device, discriminator, noise_dim=2, is_training_discriminator=True):
     epoch_loss = 0
     model.train()
 
@@ -18,10 +18,16 @@ def train(model, iterator, optimizer, loss_fun, device, noise_dim=2):
         y = sample["real_imgs"].to(device)
 
         y_hat = model(x, noise)
-        loss = loss_fun(y_hat, y)
+
+        if is_training_discriminator:
+            loss = discriminator.compute_loss(y, 1) + discriminator.compute_loss(y_hat, 0)
+            model_to_return = discriminator
+        else:
+            loss = discriminator.compute_loss(y_hat, 1) + loss_fun(y_hat, y)
+            model_to_return = model
 
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
 
-    return model, epoch_loss / len(iterator)
+    return model_to_return, epoch_loss / len(iterator)
