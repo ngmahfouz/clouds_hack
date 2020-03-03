@@ -7,7 +7,7 @@
 import torch
 import torch.nn as nn
 
-def train(models, iterator, optimizers, loss_fun, device, noise_dim=2, disc_step=1, is_training_discriminator=True):
+def train(models, iterator, optimizers, loss_fun, device, noise_dim=2, disc_step=1):
     epoch_loss = Dict({"d": 0, "g": 0, "matching": 0})
     model.train()
 

@@ -55,13 +55,10 @@ def save_images(dec, loader, i):
 
 
 for i in range(opts.n_epoch):
-
-    for j in range(opts["disc_step"]):
-        disc, disc_avg_loss = train.train(dec, loader, optimizers.d, nn.MSELoss(), device, discriminator=disc, is_training_discriminator=True)
-    dec, dec_avg_loss = train.train(dec, loader, optimizers.g, nn.MSELoss(), device, discriminator=disc, is_training_discriminator=False)
+    models, avg_loss = train.train(models, loader, optimizers, nn.MSELoss(), device)
     if i % opts.save_every == 0:
         save_images(dec, loader, i)
-    print(f"Discriminator loss : {disc_avg_loss} - Generator loss : {dec_avg_loss}")
+    print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g}")
 
 torch.save(dec.state_dict(), "dec_test.pth")
 
