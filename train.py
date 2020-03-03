@@ -10,7 +10,8 @@ from addict import Dict
 
 def train(models, iterator, optimizers, loss_fun, device, noise_dim=2, disc_step=1):
     epoch_loss = Dict({"d": 0, "g": 0, "matching": 0})
-    model.train()
+    models.g.train()
+    models.d.train()
 
     for sample in iterator:
         x = sample["metos"].to(device)
