@@ -20,7 +20,7 @@ importlib.reload(data)
 importlib.reload(model)
 importlib.reload(train)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-opts = Dict({"lr": 1e-4, "n_epoch": 1001, "save_every" : 500, "noise_dim" : 2, "disc_step" : 1})
+opts = Dict({"lr": 1e-4, "n_epoch": 10001, "save_every" : 500, "noise_dim" : 2, "disc_step" : 1})
 
 clouds = data.LowClouds("/scratch/sankarak/data/low_clouds/", 10)
 loader = DataLoader(clouds, batch_size=10)
@@ -31,28 +31,36 @@ disc = MultiDiscriminator(in_channels=1, device=device).to(device)
 models = Dict({"g": dec, "d": disc})
 optimizers = Dict({
     "g": torch.optim.Adam(dec.parameters(), lr=opts["lr"]),
-    "d": torch.optim.Adam(disc.parameters(), lr=opts["lr"])
+    "d": torch.optim.Adam(disc.parameters(), lr= 0.01 * opts["lr"])
 })
 
-def save_images(dec, loader, i):
+def infer(generator, x, noise_dim, device):
+    noise = torch.randn(x.shape[0], noise_dim).to(device)
+    return generator(x, noise)
+
+
+def save_images(dec, loader, i, n_infer=5):
     for sample in loader:
         x = sample["metos"].to(device)
         y = sample["real_imgs"].to(device)
         y_mean = y.mean(0)
         print("Loss of the mean image : ", ((y_mean - y) ** 2).mean())
 
-        noise = torch.randn(x.shape[0], opts["noise_dim"]).to(device)
-        y_hat = dec(x, noise)
-        save_image(y_hat, f"predicted_imgs_{i}.png")
         save_image(y, f"original_imgs_{i}.png")
         save_image(y_mean, f"mean_imgs_{i}.png")
+        y_hats = []
+        for j in range(n_infer):
+            y_hats.append(infer(dec, x, opts.noise_dim, device))
+
+        y_hats = torch.cat(y_hats, axis=0)
+        save_image(y_hats, f"predicted_imgs_{i}-{j}.png")
 
 
 for i in range(opts.n_epoch):
     models, avg_loss = train.train(models, loader, optimizers, nn.MSELoss(), device)
     if i % opts.save_every == 0:
         save_images(dec, loader, i)
-    print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g}")
+    print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching}")
 
 torch.save(dec.state_dict(), "dec_test.pth")
 
