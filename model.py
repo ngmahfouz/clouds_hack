@@ -9,23 +9,25 @@ from pathlib import Path
 import torch.nn as nn
 
 class Deconvolver(nn.Module):
-    def __init__(self, n_in, n_out):
+    def __init__(self, n_in, n_out, noise_dim=2):
         super().__init__()
         self.n_out = n_out
         self.n_in = n_in
+        self.total_n_in = n_in + noise_dim
 
-        self.initial_linear = nn.Linear(n_in, n_in * n_out ** 2)
-        self.metos_batch_norm = nn.BatchNorm1d(8)
-        self.up1 = UNetModule(n_in, 2 * n_in)
-        self.up2 = UNetModule(2 * n_in, 4 * n_in)
-        self.up3 = UNetModule(4 * n_in, 8 * n_in)
-        self.up4 = UNetModule(8 * n_in, n_in)
-        self.conv_final = nn.Conv2d(n_in, 1, kernel_size=1)
+        self.initial_linear = nn.Linear(self.total_n_in, self.total_n_in * n_out ** 2)
+        self.metos_batch_norm = nn.BatchNorm1d(n_in)
+        self.up1 = UNetModule(self.total_n_in, 2 * self.total_n_in)
+        self.up2 = UNetModule(2 * self.total_n_in, 4 * self.total_n_in)
+        self.up3 = UNetModule(4 * self.total_n_in, 8 * self.total_n_in)
+        self.up4 = UNetModule(8 * self.total_n_in, self.total_n_in)
+        self.conv_final = nn.Conv2d(self.total_n_in, 1, kernel_size=1)
 
-    def forward(self, x):
+    def forward(self, x, noise):
         x = self.metos_batch_norm(x)
+        x = torch.cat([x, noise], axis=1)
         x_ = self.initial_linear(x)
-        x_ = x_.reshape(x.shape[0], self.n_in, self.n_out, self.n_out)
+        x_ = x_.reshape(x.shape[0], self.total_n_in, self.n_out, self.n_out)
         layers = nn.Sequential(
             self.up1,
             self.up2,

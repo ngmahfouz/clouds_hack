@@ -18,13 +18,14 @@ importlib.reload(data)
 importlib.reload(model)
 importlib.reload(train)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-opts = Dict({"lr": 1e-4, "n_iter": 10000})
+opts = Dict({"lr": 1e-4, "n_iter": 1001, "save_every" : 500, "noise_dim" : 2})
 
 clouds = data.LowClouds("/scratch/sankarak/data/low_clouds/", 10)
 loader = DataLoader(clouds, batch_size=10)
 x = next(iter(loader))["metos"]
+noise = torch.randn(x.shape[0], opts["noise_dim"]).to(device)
 
-dec = model.Deconvolver(8, 128)
+dec = model.Deconvolver(8, 128, opts["noise_dim"])
 dec = dec.to(device)
 
 for sample in loader:
@@ -33,21 +34,25 @@ for sample in loader:
 optimizer = torch.optim.Adam(dec.parameters(), lr=opts["lr"])
 dec, avg_loss = train.train(dec, loader, optimizer, nn.MSELoss(), device)
 
-for _ in range(opts.n_iter):
+def save_images(dec, loader, i):
+    for sample in loader:
+        x = sample["metos"].to(device)
+        y = sample["real_imgs"].to(device)
+        y_mean = y.mean(0)
+        print("Loss of the mean image : ", ((y_mean - y) ** 2).mean())
+
+        noise = torch.randn(x.shape[0], opts["noise_dim"]).to(device)
+        y_hat = dec(x, noise)
+        save_image(y_hat, f"predicted_imgs_{i}.png")
+        save_image(y, f"original_imgs_{i}.png")
+        save_image(y_mean, f"mean_imgs_{i}.png")
+
+
+for i in range(opts.n_iter):
     dec, avg_loss = train.train(dec, loader, optimizer, nn.MSELoss(), device)
+    if i % opts.save_every == 0:
+        save_images(dec, loader, i)
     print(f"loss: {avg_loss}")
-
-for sample in loader:
-    x = sample["metos"].to(device)
-    y = sample["real_imgs"].to(device)
-    y_mean = y.mean(0)
-    print("Loss of the mean image : ", ((y_mean - y) ** 2).mean())
-
-    y_hat = dec(x)
-    save_image(y_hat, "predicted_imgs.png")
-    save_image(y, "original_imgs.png")
-    save_image(y_mean, "mean_imgs.png")
-
 
 torch.save(dec.state_dict(), "dec_test.pth")
 
