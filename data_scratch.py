@@ -28,7 +28,7 @@ dec = model.Deconvolver(8, 128, opts["noise_dim"])
 dec = dec.to(device)
 
 disc = MultiDiscriminator(in_channels=1, device=device).to(device)
-models = {"g": dec, "d": disc}
+models = Dict({"g": dec, "d": disc})
 optimizers = Dict({
     "g": torch.optim.Adam(dec.parameters(), lr=opts["lr"]),
     "d": torch.optim.Adam(disc.parameters(), lr=opts["lr"])
