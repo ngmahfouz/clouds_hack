@@ -32,3 +32,18 @@ dec, avg_loss = train.train(dec, loader, optimizer, nn.MSELoss(), device)
 for _ in range(opts.n_iter):
     dec, avg_loss = train.train(dec, loader, optimizer, nn.MSELoss(), device)
     print(f"loss: {avg_loss}")
+
+# torch.save(dec.state_dict(), "dec_test.pth")
+
+
+# go through loader and look at y_hat
+# save images of the y_hats
+# do they look like clouds?????
+
+
+# normalize the metos
+
+# think through other architectures? how to make it a gan?
+
+# launch job on full images (supervised)
+
