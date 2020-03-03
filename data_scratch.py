@@ -29,12 +29,6 @@ dec = dec.to(device)
 
 disc = MultiDiscriminator(in_channels=1, device=device).to(device)
 models = {"g": dec, "d": disc}
-
-for sample in loader:
-    x = sample["real_imgs"].to(device)
-    print("Discriminator Loss : ", disc.compute_loss(x, 1))
-
-
 optimizers = Dict({
     "g": torch.optim.Adam(dec.parameters(), lr=opts["lr"]),
     "d": torch.optim.Adam(disc.parameters(), lr=opts["lr"])

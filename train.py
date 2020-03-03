@@ -6,6 +6,7 @@
 """
 import torch
 import torch.nn as nn
+from addict import Dict
 
 def train(models, iterator, optimizers, loss_fun, device, noise_dim=2, disc_step=1):
     epoch_loss = Dict({"d": 0, "g": 0, "matching": 0})
