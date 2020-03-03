@@ -31,7 +31,7 @@ def train(models, iterator, optimizers, loss_fun, device, noise_dim=2, disc_step
 
         # update generator
         optimizers.g.zero_grad()
-        losses.g = discriminator.compute_loss(y_hat, 1)
+        losses.g = models.d.compute_loss(y_hat, 1)
         losses.matching = loss_fun(y_hat, y)
         (losses.g + losses.matching).backward()
         optimizers.g.step()
