@@ -1,0 +1,42 @@
+experiment:
+  name: test_para
+  exp_dir: /scratch/jassiene/clouds/experiments
+  img_path: /scratch/sankarak/images/clouds.img
+  repeat: 5
+runs:
+  - sbatch:
+      runtime: "00:30:00"
+      message: test_para
+      conf_name: gan_weights
+      cpu: 8
+      gpu: "gpu:1"
+      no_comet: false
+      mem: "16GB"
+    config:
+      model:
+        disc_size: 64
+        n_blocks: 2
+      data:
+        path: /scratch/sankarak/data/low_clouds/
+        with_stats: false
+        noq: false
+      val:
+        infer_every_steps: 1000 # How often to infer validation images
+        nb_of_inferences: 3 # no of inferences (generated imgs) per validation sample (input + real_img)
+      train:
+        batch_size: 15
+        num_D_accumulations: 1
+        n_epochs: 7000
+        num_workers: 12
+        n_in_mem: 8
+        with_stats: false
+        save_every_steps: 500
+        infer_every_steps: 500
+        lambda_gan: 0 # Gan loss scaling constant
+        lambda_L: 1 # Matching loss scaling constant
+        lr_d:
+          sample: list
+          from: [0.000001, 0.000002, 0.000003, 0.000004, 0.000005]
+        lr_g:
+          sample: list
+          from: [0.0001, 0.0002, 0.0003, 0.0004, 0.0005]
