@@ -34,11 +34,13 @@ class LowClouds(Dataset):
             load_limit=-1,
             val_ids=set([]),
             is_val=False,
+            transform=None
     ):
         super(LowClouds).__init__()
 
         # validation logic
         files = np.load(Path(data_dir, "files.npy"))
+        self.transform = transform
         self.ids = [Path(str(f)).name for f in files]
         self.ids = [re.search("([0-9]+.*)(?=_Block)", f).group() for f in self.ids]
         self.val_ids = val_ids
@@ -71,4 +73,6 @@ class LowClouds(Dataset):
             "metos": torch.tensor(self.data["metos"][i], dtype=torch.float),
             "real_imgs": torch.tensor(self.data["real_imgs"][i], dtype=torch.float).unsqueeze(0),
         }
+        if self.transform:
+            data = self.transform(data)
         return data
