@@ -40,7 +40,7 @@ with open(args.config_file) as f:
     train_args = yaml_config["train"]
 
 dataset_transforms = get_transforms(data_args)
-clouds = data.LowClouds(data_args["path"], 1000, transform=dataset_transforms)
+clouds = data.LowClouds(data_args["path"], -1, transform=dataset_transforms)
 nb_images = len(clouds)
 train_clouds, val_clouds = torch.utils.data.random_split(clouds, [nb_images - val_args["set_size"], val_args["set_size"]])
 train_loader = DataLoader(train_clouds, batch_size=train_args["batch_size"])
