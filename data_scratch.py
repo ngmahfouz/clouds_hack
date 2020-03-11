@@ -17,6 +17,7 @@ from torchvision.utils import save_image
 from res_discriminator import MultiDiscriminator, Discriminator
 import argparse
 import yaml
+from preprocessing import ReplaceNans, get_transforms
 
 parser = argparse.ArgumentParser()
 
@@ -38,8 +39,12 @@ with open(args.config_file) as f:
     val_args = yaml_config["val"]
     train_args = yaml_config["train"]
 
-clouds = data.LowClouds("/scratch/sankarak/data/low_clouds/", 10)
-loader = DataLoader(clouds, batch_size=10)
+dataset_transforms = get_transforms(data_args)
+clouds = data.LowClouds(data_args["path"], 1000, transform=dataset_transforms)
+nb_images = len(clouds)
+train_clouds, val_clouds = torch.utils.data.random_split(clouds, [nb_images - val_args["set_size"], val_args["set_size"]])
+train_loader = DataLoader(train_clouds, batch_size=train_args["batch_size"])
+val_loader = DataLoader(val_clouds, batch_size=train_args["batch_size"])
 dec = model.Deconvolver(8, 128, model_args["noise_dim"])
 dec = dec.to(device)
 
@@ -73,9 +78,9 @@ def save_images(dec, loader, i, n_infer=5):
 
 
 for i in range(train_args["n_epochs"]):
-    models, avg_loss = train.train(models, loader, optimizers, nn.MSELoss(), device)
+    models, avg_loss = train.train(models, train_loader, optimizers, nn.MSELoss(), device)
     if i % train_args["save_every_epochs"] == 0:
-        save_images(dec, loader, i, train_args["n_infer"])
+        save_images(dec, val_loader, i, train_args["n_infer"])
     print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching}")
 
 torch.save(dec.state_dict(), f"{args.output_dir}/dec_test.pth")
