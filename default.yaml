@@ -1,17 +1,17 @@
 experiment:
-  name: test_para
+  name: test_full_dataset_2
   exp_dir: /scratch/jassiene/clouds/experiments
   img_path: /scratch/sankarak/images/clouds.img
   repeat: 5
 runs:
   - sbatch:
-      runtime: "00:30:00"
-      message: test_para
+      runtime: "24:00:00"
+      message: test_full_dataset_2
       conf_name: gan_weights
       cpu: 8
       gpu: "gpu:1"
       no_comet: false
-      mem: "16GB"
+      mem: "32GB"
     config:
       model:
         disc_size: 64
@@ -20,18 +20,19 @@ runs:
         path: /scratch/sankarak/data/low_clouds/
         with_stats: false
         noq: false
+        load_limit: -1
       val:
         infer_every_steps: 1000 # How often to infer validation images
         nb_of_inferences: 3 # no of inferences (generated imgs) per validation sample (input + real_img)
       train:
-        batch_size: 15
+        batch_size: 80
         num_D_accumulations: 1
-        n_epochs: 7000
+        n_epochs: 10001
         num_workers: 12
         n_in_mem: 8
         with_stats: false
-        save_every_steps: 500
-        infer_every_steps: 500
+        save_every_epochs: 10
+        infer_every_steps: 10
         lambda_gan: 0 # Gan loss scaling constant
         lambda_L: 1 # Matching loss scaling constant
         lr_d:
