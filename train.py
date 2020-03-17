@@ -8,20 +8,23 @@ import torch
 import torch.nn as nn
 from addict import Dict
 
-def train(models, iterator, optimizers, loss_fun, device, noise_dim=2, disc_step=1):
+def train(models, iterator, optimizers, loss_fun, device, batch_size, log_this_epoch=False, noise_dim=2, disc_step=1):
     epoch_losses = Dict({"d": 0, "g": 0, "matching": 0})
     models.g.train()
     models.d.train()
+    disc_noise = torch.randn((len(iterator), disc_step, batch_size, noise_dim)).to(device)
+    gen_noise = torch.randn((len(iterator), batch_size, noise_dim)).to(device)
 
-    for sample in iterator:
+    for idx, sample in enumerate(iterator):
         losses = Dict({"d": 0, "g": 0, "matching": 0})
-        x = sample["metos"].to(device)
-        y = sample["real_imgs"].to(device)
+        x = sample["metos"] #.to(device)
+        y = sample["real_imgs"] #.to(device)
 
         # update discriminator
         optimizers.d.zero_grad()
         for k in range(disc_step):
-            noise = torch.randn(x.shape[0], noise_dim).to(device)
+            #noise = torch.randn(x.shape[0], noise_dim).to(device)
+            noise = disc_noise[idx, k, :x.shape[0]]
             y_hat = models.g(x, noise)
             losses.d += models.d.compute_loss(y, 1) + models.d.compute_loss(y_hat, 0)
 
@@ -30,14 +33,18 @@ def train(models, iterator, optimizers, loss_fun, device, noise_dim=2, disc_step
 
         # update generator
         optimizers.g.zero_grad()
-        noise = torch.randn(x.shape[0], noise_dim).to(device)
+        #noise = torch.randn(x.shape[0], noise_dim).to(device)
+        noise = gen_noise[idx, :x.shape[0]]
         y_hat = models.g(x, noise)
         losses.g = models.d.compute_loss(y_hat, 1)
         losses.matching = loss_fun(y_hat, y)
         (losses.g + losses.matching).backward()
         optimizers.g.step()
 
-        for k in epoch_losses.keys():
-            epoch_losses[k] += losses[k].item() / len(iterator)
+        if log_this_epoch:
+            for k in epoch_losses.keys():
+                epoch_losses[k] += losses[k].item() / len(iterator)
+        else:
+            epoch_losses = None
 
     return models, epoch_losses
