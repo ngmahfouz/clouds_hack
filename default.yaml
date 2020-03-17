@@ -1,12 +1,12 @@
 experiment:
-  name: test_full_dataset_2
+  name: test_full_dataset_speed
   exp_dir: /scratch/jassiene/clouds/experiments
   img_path: /scratch/sankarak/images/clouds.img
   repeat: 5
 runs:
   - sbatch:
       runtime: "24:00:00"
-      message: test_full_dataset_2
+      message: test_full_dataset_speed
       conf_name: gan_weights
       cpu: 8
       gpu: "gpu:1"
@@ -25,7 +25,7 @@ runs:
         infer_every_steps: 1000 # How often to infer validation images
         nb_of_inferences: 3 # no of inferences (generated imgs) per validation sample (input + real_img)
       train:
-        batch_size: 80
+        batch_size: 120
         num_D_accumulations: 1
         n_epochs: 10001
         num_workers: 12

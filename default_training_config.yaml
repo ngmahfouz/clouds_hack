@@ -7,7 +7,7 @@ model:
 # -----    Train Params    -----
 # ------------------------------
 train:
-    batch_size: 80
+    batch_size: 120
     early_break_epoch: 0 # Break an epoch loop after early_break_epoch steps in this epoch
     init_chkpt_dir: null # can initialize from a checkpoint directory
     init_chkpt_step: "latest" # can give path to saved checkpoint
@@ -24,6 +24,7 @@ train:
     save_every_epochs: 500 # How often to save  the model's weights
     use_extragradient_optimizer: true # >>DEPRECATED: use optimizer instead<< use ExtragradientSGD or Adam(betas=(0.5, 0.999))
     n_infer: 3
+    log_every: 10 
 # ------------------------
 # -----  Validation  -----
 # ------------------------
