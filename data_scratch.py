@@ -40,10 +40,10 @@ with open(args.config_file) as f:
     train_args = yaml_config["train"]
 
 dataset_transforms = get_transforms(data_args)
-clouds = data.LowClouds(data_args["path"], data_args["load_limit"], transform=dataset_transforms)
+clouds = data.LowClouds(data_args["path"], data_args["load_limit"], transform=dataset_transforms, device=device)
 nb_images = len(clouds)
 train_clouds, val_clouds = torch.utils.data.random_split(clouds, [nb_images - val_args["set_size"], val_args["set_size"]])
-train_loader = DataLoader(train_clouds, batch_size=train_args["batch_size"])
+train_loader = DataLoader(train_clouds, batch_size=train_args["batch_size"], pin_memory=False)
 val_loader = DataLoader(val_clouds, batch_size=train_args["batch_size"])
 dec = model.Deconvolver(8, 128, model_args["noise_dim"])
 dec = dec.to(device)
@@ -80,10 +80,16 @@ def save_images(dec, loader, i, n_infer=5):
 
 
 for i in range(train_args["n_epochs"]):
-    models, avg_loss = train.train(models, train_loader, optimizers, nn.MSELoss(), device)
+    print(f"Epoch {i+1}")
+    log_this_epoch = False
+    if i % train_args["log_every"] == 0:
+        log_this_epoch = True
+    models, avg_loss = train.train(models, train_loader, optimizers, nn.MSELoss(), device, train_args["batch_size"], log_this_epoch)
     if i % train_args["save_every_epochs"] == 0:
         save_images(dec, val_loader, i, train_args["n_infer"])
-    print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching}", flush=True)
+
+    if i % train_args["log_every"] == 0:
+        print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching}", flush=True)
 
 torch.save(dec.state_dict(), f"{args.output_dir}/dec_test.pth")
 
