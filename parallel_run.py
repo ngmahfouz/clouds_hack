@@ -65,7 +65,7 @@ for i in range(experiments_args['repeat']):
     module load singularity/3.5
     cd $HOME/clouds_hack/
     singularity exec --nv --bind $SLURM_TMPDIR,{data_args['path']},{current_run_path} {experiments_args['img_path']} \
-    python3 data_scratch.py -o $SLURM_TMPDIR -c {current_run_path}/training_config.yaml
+    python3 data_scratch.py -o {current_run_path} -c {current_run_path}/training_config.yaml
     cp $SLURM_TMPDIR/* {current_run_path}""")
 
     os.makedirs(current_run_path, exist_ok=True)
