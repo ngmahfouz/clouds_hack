@@ -7,13 +7,20 @@
 import torch
 import torch.nn as nn
 from addict import Dict
+import utils
 
-def train(models, iterator, optimizers, loss_fun, device, batch_size, log_this_epoch=False, noise_dim=2, disc_step=1):
+def train(models, iterator, optimizers, loss_fun, device, train_args, model_args, elapsed_epochs, log_this_epoch=False):
+
+    batch_size = train_args["batch_size"]
+    noise_dim = model_args["noise_dim"]
+    disc_step = train_args["num_D_accumulations"]
+
     epoch_losses = Dict({"d": 0, "g": 0, "matching": 0})
     models.g.train()
     models.d.train()
-    disc_noise = torch.randn((len(iterator), disc_step, batch_size, noise_dim)).to(device)
-    gen_noise = torch.randn((len(iterator), batch_size, noise_dim)).to(device)
+    iterator_len = len(iterator)
+    disc_noise = torch.randn((iterator_len, disc_step, batch_size, noise_dim)).to(device)
+    gen_noise = torch.randn((iterator_len, batch_size, noise_dim)).to(device)
 
     for idx, sample in enumerate(iterator):
         losses = Dict({"d": 0, "g": 0, "matching": 0})
@@ -29,7 +36,10 @@ def train(models, iterator, optimizers, loss_fun, device, batch_size, log_this_e
             losses.d += models.d.compute_loss(y, 1) + models.d.compute_loss(y_hat, 0)
 
         losses.d.backward()
-        optimizers.d.step()
+        total_steps = elapsed_epochs * iterator_len + idx
+        optimizers.d = utils.optim_step(
+            optimizers.d, train_args["optimizer"], total_steps, idx
+        )
 
         # update generator
         optimizers.g.zero_grad()
@@ -39,7 +49,10 @@ def train(models, iterator, optimizers, loss_fun, device, batch_size, log_this_e
         losses.g = models.d.compute_loss(y_hat, 1)
         losses.matching = loss_fun(y_hat, y)
         (losses.g + losses.matching).backward()
-        optimizers.g.step()
+
+        optimizers.g = utils.optim_step(
+            optimizers.g, train_args["optimizer"], total_steps, idx
+        )
 
         if log_this_epoch:
             for k in epoch_losses.keys():
@@ -47,4 +60,4 @@ def train(models, iterator, optimizers, loss_fun, device, batch_size, log_this_e
         else:
             epoch_losses = None
 
-    return models, epoch_losses
+    return models, epoch_losses, optimizers

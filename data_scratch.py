@@ -18,6 +18,7 @@ from res_discriminator import MultiDiscriminator, Discriminator
 import argparse
 import yaml
 from preprocessing import ReplaceNans, get_transforms
+from optim import get_optimizers
 
 parser = argparse.ArgumentParser()
 
@@ -50,9 +51,10 @@ dec = dec.to(device)
 
 disc = MultiDiscriminator(in_channels=1, device=device).to(device)
 models = Dict({"g": dec, "d": disc})
+g_optimizer, d_optimizer = get_optimizers(models["g"], models["d"], Dict(yaml_config))
 optimizers = Dict({
-    "g": torch.optim.Adam(dec.parameters(), lr=train_args["lr_g"]),
-    "d": torch.optim.Adam(disc.parameters(), lr=train_args["lr_d"])
+    "g": g_optimizer,
+    "d": d_optimizer
 })
 
 def infer(generator, x, noise_dim, device):
@@ -84,9 +86,9 @@ for i in range(train_args["n_epochs"]):
     log_this_epoch = False
     if i % train_args["log_every"] == 0:
         log_this_epoch = True
-    models, avg_loss = train.train(models, train_loader, optimizers, nn.MSELoss(), device, train_args["batch_size"], log_this_epoch)
+    models, avg_loss, optimizers = train.train(models, train_loader, optimizers, nn.MSELoss(), device, train_args, model_args, i, log_this_epoch)
     if i % train_args["save_every_epochs"] == 0:
-        save_images(dec, val_loader, i, train_args["n_infer"])
+        save_images(dec, train_loader, i, train_args["n_infer"])
 
     if i % train_args["log_every"] == 0:
         print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching}", flush=True)
