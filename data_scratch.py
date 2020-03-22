@@ -17,6 +17,7 @@ from torchvision.utils import save_image
 from res_discriminator import MultiDiscriminator, Discriminator
 import argparse
 import yaml
+import pandas as pd
 from preprocessing import ReplaceNans, get_transforms
 from optim import get_optimizers
 
@@ -46,8 +47,10 @@ nb_images = len(clouds)
 train_clouds, val_clouds = torch.utils.data.random_split(clouds, [nb_images - val_args["set_size"], val_args["set_size"]])
 train_loader = DataLoader(train_clouds, batch_size=train_args["batch_size"], pin_memory=False)
 val_loader = DataLoader(val_clouds, batch_size=train_args["batch_size"])
-dec = model.Deconvolver(8, 128, model_args["noise_dim"])
+dec = model.Deconvolver(8, 128, n_blocks=model_args["n_blocks"], depth_increase_factor=model_args["depth_increase_factor"], noise_dim=model_args["noise_dim"])
 dec = dec.to(device)
+log_csv_file = pd.DataFrame(columns=["Epoch", "Discriminator_loss", "Generator_loss", "Matching_loss"])
+
 
 disc = MultiDiscriminator(in_channels=1, device=device).to(device)
 models = Dict({"g": dec, "d": disc})
@@ -57,12 +60,23 @@ optimizers = Dict({
     "d": d_optimizer
 })
 
+def save(generator, discriminator, optimizers, output_dir, step=0):
+    state = {
+        "step": step,
+        "generator": generator.state_dict(),
+        "discriminator": discriminator.state_dict(),
+        "d_optimizer": optimizers.d.state_dict(),
+        "g_optimizer": optimizers.g.state_dict(),
+    }
+    torch.save(state, f"{output_dir}/state_{step}.pt")
+    torch.save(state, f"{output_dir}/state_latest.pt")
+
 def infer(generator, x, noise_dim, device):
     noise = torch.randn(x.shape[0], noise_dim).to(device)
     return generator(x, noise)
 
 
-def save_images(dec, loader, i, n_infer=5):
+def infer_and_save(dec, loader, i, n_infer=5):
     for sample in loader:
         x = sample["metos"].to(device)
         y = sample["real_imgs"].to(device)
@@ -82,16 +96,26 @@ def save_images(dec, loader, i, n_infer=5):
 
 
 for i in range(train_args["n_epochs"]):
-    print(f"Epoch {i+1}")
+    print(f"Epoch {i+1}", flush=True)
     log_this_epoch = False
     if i % train_args["log_every"] == 0:
         log_this_epoch = True
     models, avg_loss, optimizers = train.train(models, train_loader, optimizers, nn.MSELoss(), device, train_args, model_args, i, log_this_epoch)
-    if i % train_args["save_every_epochs"] == 0:
-        save_images(dec, train_loader, i, train_args["n_infer"])
+    if i % val_args["infer_every"] == 0:
+        infer_and_save(dec, val_loader, i, train_args["n_infer"])
 
     if i % train_args["log_every"] == 0:
         print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching}", flush=True)
+        print("Loggin...")
+        log_info = pd.DataFrame(data={"Epoch" : [i], "Discriminator_loss" : [avg_loss.d], "Generator_loss" : [avg_loss.g], "Matching_loss" : [avg_loss.matching]})
+        log_csv_file = log_csv_file.append(log_info)
+        log_csv_file.to_csv(f"{args.output_dir}/losses.csv")
+        print("Done")
+
+    if i % train_args["save_every"] == 0:
+        print("Saving...")
+        save(models.g, models.d, optimizers, args.output_dir, i)
+        print("Done")
 
 torch.save(dec.state_dict(), f"{args.output_dir}/dec_test.pth")
 
