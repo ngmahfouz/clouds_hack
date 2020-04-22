@@ -1,12 +1,12 @@
 experiment:
-  name: test_full_dataset_eadam
+  name: test_dataset_5b_adam_mlX_ft_cl2
   exp_dir: /scratch/jassiene/clouds/experiments
   img_path: /scratch/sankarak/images/clouds.img
   repeat: 5
 runs:
   - sbatch:
-      runtime: "24:00:00"
-      message: test_full_dataset_eadam
+      runtime: "20:00:00"
+      message: test_dataset_5b_adam_ml1_ft_cl2
       conf_name: gan_weights
       cpu: 8
       gpu: "gpu:1"
@@ -15,26 +15,28 @@ runs:
     config:
       model:
         disc_size: 64
-        n_blocks: 2
+        n_blocks: 5
       data:
-        path: /scratch/sankarak/data/low_clouds/
+        path: /scratch/sankarak/data/low_clouds/low_clouds_cl2
         with_stats: false
         noq: false
         load_limit: -1
       val:
-        infer_every: 10 # How often to infer validation images
+        infer_every: 20 # How often to infer validation images
         nb_of_inferences: 3 # no of inferences (generated imgs) per validation sample (input + real_img)
       train:
-        batch_size: 75
+        batch_size: 20
         num_D_accumulations: 1
         n_epochs: 10001
         num_workers: 12
         n_in_mem: 8
         with_stats: false
-        save_every: 10
-        infer_every: 10
-        lambda_gan: 0 # Gan loss scaling constant
-        lambda_L: 1 # Matching loss scaling constant
+        save_every: 500
+        infer_every: 20
+        lambda_gan: 1 # Gan loss scaling constant
+        lambda_L: # Matching loss scaling constant
+          sample: list
+          from: [1, 2, 3, 4, 5] 
         lr_d:
           sample: list
           from: [0.000001, 0.000002, 0.000003, 0.000004, 0.000005]

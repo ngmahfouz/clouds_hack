@@ -54,7 +54,7 @@ for i in range(experiments_args['repeat']):
     slurm_file_template =  dedent(
     f"""\
     #!/bin/bash
-    #SBATCH --account=rpp-bengioy            # Yoshua pays for your job
+    #SBATCH --account=rrg-bengioy-ad            # Yoshua pays for your job
     #SBATCH --cpus-per-task={sbatch_args['cpu']}                # Ask for 6 CPUs
     #SBATCH --gres={sbatch_args['gpu']}                     # Ask for 1 GPU
     #SBATCH --mem={sbatch_args['mem']}                        # Ask for 32 GB of RAM
@@ -62,6 +62,8 @@ for i in range(experiments_args['repeat']):
     #SBATCH -o {current_run_path}/slurm-%j.out  # Write the log in $SCRATCH
     
     mkdir -p {current_run_path}
+    mkdir -p $SLURM_TMPDIR/.cache/torch/checkpoints/
+    cp $HOME/.cache/torch/checkpoints/*.pth $SLURM_TMPDIR/.cache/torch/checkpoints/
     module load singularity/3.5
     cd $HOME/clouds_hack/
     singularity exec --nv --bind $SLURM_TMPDIR,{data_args['path']},{current_run_path} {experiments_args['img_path']} \

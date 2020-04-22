@@ -9,7 +9,7 @@ import torch.nn as nn
 from addict import Dict
 import utils
 
-def train(models, iterator, optimizers, loss_fun, device, train_args, model_args, elapsed_epochs, log_this_epoch=False):
+def train(models, iterator, optimizers, loss_fun, device, train_args, model_args, elapsed_epochs, feature_extraction=None, log_this_epoch=False):
 
     batch_size = train_args["batch_size"]
     noise_dim = model_args["noise_dim"]
@@ -47,8 +47,23 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
         noise = gen_noise[idx, :x.shape[0]]
         y_hat = models.g(x, noise)
         losses.g = models.d.compute_loss(y_hat, 1)
-        losses.matching = loss_fun(y_hat, y)
-        (losses.g + losses.matching).backward()
+        if feature_extraction is None:
+            losses.matching = loss_fun(y_hat, y)
+        else:
+            #import pdb
+            rgb_y_hat = torch.cat([y_hat] * 3, dim=1) #converts grayscale to RGB by replicating the single channel 3 times
+            rgb_y = torch.cat([y] * 3, dim=1)
+            rgb_normalized_y_hat = []
+            rgb_normalized_y = []
+            for j in range(x.shape[0]):
+                rgb_normalized_y_hat.append(feature_extraction["transformations"](rgb_y_hat[j].cpu()))
+                rgb_normalized_y.append(feature_extraction["transformations"](rgb_y[j].cpu()))
+            #pdb.set_trace()
+            rgb_y_hat, rgb_y = torch.stack(rgb_normalized_y_hat).to(rgb_y_hat.device), torch.stack(rgb_normalized_y).to(rgb_y.device)
+            feature_maps_y_hat = feature_extraction["extractor"](rgb_y_hat)
+            feature_maps_y = feature_extraction["extractor"](rgb_y)
+            losses.matching = loss_fun(feature_maps_y_hat, feature_maps_y)
+        (train_args["lambda_gan"] * losses.g + train_args["lambda_L"] * losses.matching).backward()
 
         optimizers.g = utils.optim_step(
             optimizers.g, train_args["optimizer"], total_steps, idx
