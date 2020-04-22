@@ -13,6 +13,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import train
+from torchvision import models, transforms
+import utils
+from torch.autograd import Variable
 from torchvision.utils import save_image
 from res_discriminator import MultiDiscriminator, Discriminator
 import argparse
@@ -51,6 +54,19 @@ dec = model.Deconvolver(8, 128, n_blocks=model_args["n_blocks"], depth_increase_
 dec = dec.to(device)
 log_csv_file = pd.DataFrame(columns=["Epoch", "Discriminator_loss", "Generator_loss", "Matching_loss"])
 
+if train_args["feature_extractor_loss"]:
+    feature_extractor, feature_extractor_input_size = utils.initialize_model(train_args["feature_extractor_model"])
+    feature_extractor = feature_extractor.to(device)
+    feature_extractor_transforms = transforms.Compose([transforms.ToPILImage(),
+                                transforms.Resize((feature_extractor_input_size, feature_extractor_input_size)),
+                                transforms.ToTensor(),
+                                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])])
+
+    feature_extraction = {"extractor" : feature_extractor, "transformations": feature_extractor_transforms}
+
+else:
+    feature_extraction = None
 
 disc = MultiDiscriminator(in_channels=1, device=device).to(device)
 models = Dict({"g": dec, "d": disc})
@@ -100,7 +116,7 @@ for i in range(train_args["n_epochs"]):
     log_this_epoch = False
     if i % train_args["log_every"] == 0:
         log_this_epoch = True
-    models, avg_loss, optimizers = train.train(models, train_loader, optimizers, nn.MSELoss(), device, train_args, model_args, i, log_this_epoch)
+    models, avg_loss, optimizers = train.train(models, train_loader, optimizers, nn.MSELoss(), device, train_args, model_args, i, feature_extraction, log_this_epoch)
     if i % val_args["infer_every"] == 0:
         infer_and_save(dec, val_loader, i, train_args["n_infer"])
 
