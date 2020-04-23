@@ -35,13 +35,15 @@ class LowClouds(Dataset):
             val_ids=set([]),
             is_val=False,
             transform=None,
-            device=None
+            device=None,
+            img_transforms=None
     ):
         super(LowClouds).__init__()
 
         # validation logic
         files = np.load(Path(data_dir, "files.npy"))
         self.transform = transform
+        self.img_transforms = img_transforms
         self.ids = [Path(str(f)).name for f in files]
         self.ids = [re.search("([0-9]+.*)(?=_Block)", f).group() for f in self.ids]
         self.val_ids = val_ids
@@ -90,4 +92,7 @@ class LowClouds(Dataset):
 
         if self.transform:
             data = self.transform(data)
+
+        if self.img_transforms:
+            data["real_imgs"] = self.img_transforms(data["real_imgs"])
         return data
