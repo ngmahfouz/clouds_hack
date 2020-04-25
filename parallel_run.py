@@ -66,7 +66,7 @@ for i in range(experiments_args['repeat']):
     cp $HOME/.cache/torch/checkpoints/*.pth $SLURM_TMPDIR/.cache/torch/checkpoints/
     module load singularity/3.5
     cd $HOME/clouds_hack/
-    singularity exec --nv --bind $SLURM_TMPDIR,{data_args['path']},{current_run_path} {experiments_args['img_path']} \
+    singularity exec --nv --bind $SLURM_TMPDIR,{data_args['path']},{current_run_path},/etc/pki/tls/certs/,/etc/pki/ca-trust/extracted/pem/ {experiments_args['img_path']} \
     python3 data_scratch.py -o {current_run_path} -c {current_run_path}/training_config.yaml
     cp $SLURM_TMPDIR/* {current_run_path}""")
 

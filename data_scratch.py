@@ -23,6 +23,9 @@ import yaml
 import pandas as pd
 from preprocessing import ReplaceNans, get_transforms
 from optim import get_optimizers
+import os
+
+os.environ['WANDB_MODE'] = 'dryrun'
 
 parser = argparse.ArgumentParser()
 
@@ -43,6 +46,10 @@ with open(args.config_file) as f:
     model_args = yaml_config["model"]
     val_args = yaml_config["val"]
     train_args = yaml_config["train"]
+
+if train_args["use_wandb"]:
+    import wandb
+    wandb.init(project="clouds_hack")
 
 dataset_transforms = get_transforms(data_args)
 clouds = data.LowClouds(data_args["path"], data_args["load_limit"], transform=dataset_transforms, device=device)
@@ -86,13 +93,15 @@ def save(generator, discriminator, optimizers, output_dir, step=0):
     }
     torch.save(state, f"{output_dir}/state_{step}.pt")
     torch.save(state, f"{output_dir}/state_latest.pt")
+    if train_args["use_wandb"]:
+        wandb.save(f"{output_dir}/state_{step}.pt")
 
 def infer(generator, x, noise_dim, device):
     noise = torch.randn(x.shape[0], noise_dim).to(device)
     return generator(x, noise)
 
 
-def infer_and_save(dec, loader, i, n_infer=5):
+def infer_and_save(dec, loader, i, n_infer=5, filename_prefix="val_"):
     for sample in loader:
         x = sample["metos"].to(device)
         y = sample["real_imgs"].to(device)
@@ -100,15 +109,45 @@ def infer_and_save(dec, loader, i, n_infer=5):
         print("Loss of the mean image : ", ((y_mean - y) ** 2).mean(), flush=True)
         print("Standard deviation of the mean image : ", y_mean.std(), flush=True)
 
-        save_image(y, f"{args.output_dir}/original_imgs_{i}.png")
-        save_image(y_mean, f"{args.output_dir}/mean_imgs_{i}.png")
+        if i == 0:
+            save_image(y, f"{args.output_dir}/original_imgs_{i}.png")
+            save_image(y_mean, f"{args.output_dir}/mean_imgs_{i}.png")
+            # wandb.save(f"{args.output_dir}/original_imgs_{i}.png")
+            # wandb.save(f"{args.output_dir}/mean_imgs_{i}.png")
+            if train_args["use_wandb"]:
+                wandb.log({
+                    "epoch" : i,
+                    "ground_truth" : [wandb.Image(j) for j in y],
+                    "mean_image" : wandb.Image(y_mean)
+                })
         y_hats = []
         for j in range(n_infer):
             y_hats.append(infer(dec, x, model_args["noise_dim"], device))
 
         y_hats = torch.cat(y_hats, axis=0)
         print("Standard deviation of the first image : ", y_hats[0].std(), flush=True)
-        save_image(y_hats, f"{args.output_dir}/predicted_imgs_{i}-{j}.png")
+        save_image(y_hats, f"{args.output_dir}/{filename_prefix}predicted_imgs_{i}-{j}.png")
+        # wandb.save(f"{args.output_dir}/{filename_prefix}predicted_imgs_{i}-{j}.png")
+        if train_args["use_wandb"]:
+            wandb.log({
+                "predicted" : [wandb.Image(j) for j in y_hats]
+            })
+
+if train_args["use_wandb"]:
+    wandb.config.update(data_args)
+    wandb.config.update(model_args)
+    wandb.config.update(train_args)
+    wandb.config.update(val_args)
+
+def log_train_stats(epoch, avg_losses):
+    g_total_loss = (train_args["lambda_gan"] * avg_losses.g + train_args["lambda_L"] * avg_losses.matching)
+    wandb.log({
+        "epoch" : i,
+        "g/loss/total" : g_total_loss,
+        "g/loss/matching" : avg_losses.matching,
+        "g/loss/disc" : avg_losses.g,
+        "d/loss" : avg_losses.d
+        })
 
 
 for i in range(train_args["n_epochs"]):
@@ -122,10 +161,12 @@ for i in range(train_args["n_epochs"]):
 
     if i % train_args["log_every"] == 0:
         print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching}", flush=True)
-        print("Loggin...")
+        print("Logging...")
         log_info = pd.DataFrame(data={"Epoch" : [i], "Discriminator_loss" : [avg_loss.d], "Generator_loss" : [avg_loss.g], "Matching_loss" : [avg_loss.matching]})
         log_csv_file = log_csv_file.append(log_info)
         log_csv_file.to_csv(f"{args.output_dir}/losses.csv")
+        if train_args["use_wandb"]:
+            log_train_stats(i, avg_loss)
         print("Done")
 
     if i % train_args["save_every"] == 0:

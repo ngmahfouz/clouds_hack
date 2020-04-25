@@ -1,12 +1,12 @@
 experiment:
-  name: test_dataset_5b_adam_mlX_ft_cl2
+  name: testw_dataset_5b_adam_mlX_ft_cl2
   exp_dir: /scratch/jassiene/clouds/experiments
-  img_path: /scratch/sankarak/images/clouds.img
+  img_path: /scratch/sankarak/images/clouds.sif
   repeat: 5
 runs:
   - sbatch:
       runtime: "20:00:00"
-      message: test_dataset_5b_adam_ml1_ft_cl2
+      message: testw_dataset_5b_adam_ml1_ft_cl2
       conf_name: gan_weights
       cpu: 8
       gpu: "gpu:1"
