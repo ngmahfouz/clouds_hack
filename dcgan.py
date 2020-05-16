@@ -11,12 +11,16 @@ import torch.utils.data
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
+import torch.nn.functional as F
 import yaml
+import math
+from film import FiLM
 
 import data
 from preprocessing import ReplaceNans, get_transforms
 
-# python3 dcgan.py --dataset low_clouds --outf out_dcgan_lc --dataroot data_dcgan --cuda --niter 200
+# python3 dcgan.py --dataset low_clouds --outf out_dcgan_lc_film_64 --dataroot data_dcgan --cuda --niter 200
+# python3 dcgan.py --dataset low_clouds --outf out_dcgan_lc_film_128 --dataroot data_dcgan --cuda --niter 200 --imageSize 128
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', required=True, help='cifar10 | lsun | mnist |imagenet | folder | lfw | fake | low_clouds')
@@ -29,7 +33,7 @@ parser.add_argument('--ngf', type=int, default=64)
 parser.add_argument('--ndf', type=int, default=64)
 parser.add_argument('--niter', type=int, default=25, help='number of epochs to train for')
 parser.add_argument('--lrg', type=float, default=0.0002, help='generator learning rate, default=0.0002')
-parser.add_argument('--lrd', type=float, default=0.0001, help='discriminator learning rate, default=0.0002')
+parser.add_argument('--lrd', type=float, default=0.00001, help='discriminator learning rate, default=0.0002')
 parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
 parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
@@ -142,6 +146,47 @@ def weights_init(m):
         m.bias.data.fill_(0)
 
 
+class Generator2(nn.Module):
+    def __init__(self, ngpu, img_size):
+        super().__init__()
+        self.ngpu = ngpu
+        self.log_first_out_channels = int(math.log2(img_size)) - 3 # For 64=2^6 the first output is 8 = 2^3 . For 128 = 2^7 it's 16=2^4 . We remove 3 each time
+        self.layers_to_film = []
+        cblocks_list = []
+        
+        stride = 1
+        padding = 0
+        prev_out_channels = nz
+        
+        
+        for i in range(self.log_first_out_channels, -1, -1):
+            current_out_channels = ngf * 2 ** i
+
+            cblocks_list.append(nn.ConvTranspose2d(prev_out_channels, current_out_channels, 4, stride, padding, bias=False))
+            cblocks_list.append(nn.BatchNorm2d(current_out_channels))
+            if (self.log_first_out_channels - i) in self.layers_to_film: # Index of the layer to film. If we want to FiLM the first layer (index 0), it correspond to i = self.log_first_out_channels
+                cblocks_list.append(FiLM(output_dim=current_out_channels))
+            cblocks_list.append(nn.ReLU(True))
+            stride = 2
+            padding = 1
+            prev_out_channels = current_out_channels
+
+        self.model = nn.ModuleList(cblocks_list + [nn.ConvTranspose2d(    ngf,      nc, 4, 2, 1, bias=False), nn.Tanh()])
+
+        
+
+    def forward(self, noise, metos):
+        if noise.is_cuda and self.ngpu > 1:
+            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
+        else:
+            x_ = noise
+            for layer in self.model:
+                if isinstance(layer, FiLM):
+                    x_ = layer(metos, x_)
+                else:
+                    x_ = layer(x_)
+        return x_
+
 class Generator(nn.Module):
     def __init__(self, ngpu):
         super(Generator, self).__init__()
@@ -177,11 +222,48 @@ class Generator(nn.Module):
         return output
 
 
-netG = Generator(ngpu).to(device)
+# netG = Generator(ngpu).to(device)
+netG = Generator2(ngpu, opt.imageSize).to(device)
 netG.apply(weights_init)
 if opt.netG != '':
     netG.load_state_dict(torch.load(opt.netG))
 print(netG)
+
+
+class Discriminator2(nn.Module):
+    def __init__(self, ngpu, img_size):
+        super().__init__()
+        self.ngpu = ngpu
+
+        self.log_first_out_channels = int(math.log2(img_size)) - 3 # For 64=2^6 the first output is 8 = 2^3 . For 128 = 2^7 it's 16=2^4 . We remove 3 each time
+        cblocks_list = []
+        
+        stride = 2
+        padding = 1
+        prev_out_channels = nc
+        
+        
+        for i in range(self.log_first_out_channels + 1):
+            current_out_channels = ndf * 2 ** i
+
+            cblocks_list.append(nn.Conv2d(prev_out_channels, current_out_channels, 4, stride, padding, bias=False))
+            cblocks_list.append(nn.BatchNorm2d(current_out_channels))
+            
+            cblocks_list.append(nn.LeakyReLU(0.2, inplace=True))
+            prev_out_channels = current_out_channels
+
+        self.model = nn.ModuleList(cblocks_list + [nn.Conv2d(current_out_channels, 1, 4, 1, 0, bias=False), nn.Sigmoid()])
+
+
+    def forward(self, input):
+        if input.is_cuda and self.ngpu > 1:
+            output = nn.parallel.data_parallel(self.model, input, range(self.ngpu))
+        else:
+            output = input
+            for layer in self.model:
+                output = layer(output)
+
+        return output.view(-1, 1).squeeze(1)
 
 
 class Discriminator(nn.Module):
@@ -218,7 +300,8 @@ class Discriminator(nn.Module):
         return output.view(-1, 1).squeeze(1)
 
 
-netD = Discriminator(ngpu).to(device)
+# netD = Discriminator(ngpu).to(device)
+netD = Discriminator2(ngpu, opt.imageSize).to(device)
 netD.apply(weights_init)
 if opt.netD != '':
     netD.load_state_dict(torch.load(opt.netD))
@@ -241,7 +324,8 @@ for epoch in range(opt.niter):
         ###########################
         # train with real
         netD.zero_grad()
-        data = [data["real_imgs"], data["metos"]]
+        if opt.dataset == 'low_clouds':
+            data = [data["real_imgs"], data["metos"]]
         
         real_cpu = data[0].to(device)
         batch_size = real_cpu.size(0)
@@ -256,7 +340,8 @@ for epoch in range(opt.niter):
 
         # train with fake
         noise = torch.randn(batch_size, nz, 1, 1, device=device)
-        fake = netG(noise)
+        fake = netG(noise, data[1].to(device))
+        # fake = netG(noise)
         label.fill_(fake_label)
         output = netD(fake.detach())
         errD_fake = criterion(output, label)
@@ -283,9 +368,13 @@ for epoch in range(opt.niter):
             vutils.save_image(real_cpu,
                     '%s/real_samples.png' % opt.outf,
                     normalize=True)
-            fake = netG(fixed_noise)
+            fake = netG(fixed_noise, data[1].to(device))
+            # fake = netG(fixed_noise)
             vutils.save_image(fake.detach(),
                     '%s/fake_samples_epoch_%03d.png' % (opt.outf, epoch),
+                    normalize=True)
+            vutils.save_image(real_cpu.detach(),
+                    '%s/real_samples_epoch_%03d.png' % (opt.outf, epoch),
                     normalize=True)
 
     # do checkpointing

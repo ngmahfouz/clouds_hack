@@ -1,12 +1,12 @@
 experiment:
-  name: testw_dataset_5b_adam_mlX_ft_cl2
+  name: recap_5b_adam_mlX_pca_cl3
   exp_dir: /scratch/jassiene/clouds/experiments
   img_path: /scratch/sankarak/images/clouds.sif
   repeat: 5
 runs:
   - sbatch:
       runtime: "20:00:00"
-      message: testw_dataset_5b_adam_ml1_ft_cl2
+      message: recap_5b_adam_mlX_pca_cl3
       conf_name: gan_weights
       cpu: 8
       gpu: "gpu:1"
@@ -17,7 +17,7 @@ runs:
         disc_size: 64
         n_blocks: 5
       data:
-        path: /scratch/sankarak/data/low_clouds/low_clouds_cl2
+        path: /scratch/sankarak/data/low_clouds/low_clouds_pca_095_cl3
         with_stats: false
         noq: false
         load_limit: -1
@@ -33,6 +33,7 @@ runs:
         with_stats: false
         save_every: 500
         infer_every: 20
+        feature_extractor_loss: false
         lambda_gan: 1 # Gan loss scaling constant
         lambda_L: # Matching loss scaling constant
           sample: list
