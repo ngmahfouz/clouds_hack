@@ -94,5 +94,5 @@ class LowClouds(Dataset):
             data = self.transform(data)
 
         if self.img_transforms:
-            data["real_imgs"] = self.img_transforms(data["real_imgs"])
+            data["real_imgs"] = self.img_transforms(data["real_imgs"].cpu()).to(self.device)
         return data

@@ -51,13 +51,22 @@ if train_args["use_wandb"]:
     import wandb
     wandb.init(project="clouds_hack")
 
-dataset_transforms = get_transforms(data_args)
-clouds = data.LowClouds(data_args["path"], data_args["load_limit"], transform=dataset_transforms, device=device)
+dataset_transforms, img_transforms = get_transforms(data_args)
+clouds = data.LowClouds(data_args["path"], data_args["load_limit"], transform=dataset_transforms, device=device, img_transforms=img_transforms)
 nb_images = len(clouds)
 train_clouds, val_clouds = torch.utils.data.random_split(clouds, [nb_images - val_args["set_size"], val_args["set_size"]])
 train_loader = DataLoader(train_clouds, batch_size=train_args["batch_size"], pin_memory=False)
 val_loader = DataLoader(val_clouds, batch_size=train_args["batch_size"])
-dec = model.Deconvolver(8, 128, n_blocks=model_args["n_blocks"], depth_increase_factor=model_args["depth_increase_factor"], noise_dim=model_args["noise_dim"])
+
+if model_args["film_layers"] == "":
+    layers_to_film = []
+else:
+    layers_to_film = [int(item) for item in model_args["film_layers"].split(',')]
+
+if model_args["generator"] == "dcgan":
+    dec = model.DCGANGenerator(data_args["image_size"], layers_to_film, model_args["noise_dim"], model_args["ngf"], model_args["nc"])
+else:
+    dec = model.Deconvolver(8, 128, n_blocks=model_args["n_blocks"], depth_increase_factor=model_args["depth_increase_factor"], noise_dim=model_args["noise_dim"])
 dec = dec.to(device)
 log_csv_file = pd.DataFrame(columns=["Epoch", "Discriminator_loss", "Generator_loss", "Matching_loss"])
 
@@ -75,7 +84,12 @@ if train_args["feature_extractor_loss"]:
 else:
     feature_extraction = None
 
-disc = MultiDiscriminator(in_channels=1, device=device).to(device)
+if model_args["discriminator"] == "dcgan":
+    disc = model.DCGANDiscriminator(data_args["image_size"], model_args["ndf"], model_args["nc"])
+else:
+    disc = MultiDiscriminator(in_channels=1, device=device)
+
+disc = disc.to(device)
 models = Dict({"g": dec, "d": disc})
 g_optimizer, d_optimizer = get_optimizers(models["g"], models["d"], Dict(yaml_config))
 optimizers = Dict({

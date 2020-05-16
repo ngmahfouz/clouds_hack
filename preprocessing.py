@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from pathlib import Path
-from torchvision.transforms import Compose
+from torchvision import transforms
 
 def get_stats(data_dir):
     return np.load(Path(data_dir, "metos_stats.npy"))
@@ -11,8 +11,16 @@ def get_transforms(data_args):
     replace_nans_transform = ReplaceNans()
     replace_nans_transform.set_stats(dataset_stats)
     dataset_transforms = [replace_nans_transform]
+    img_transforms = [transforms.ToPILImage()]
 
-    return Compose(dataset_transforms)
+    if data_args["image_size"] != 128:
+        img_transforms.append(transforms.Resize(data_args["image_size"]))
+
+    img_transforms.append(transforms.ToTensor())
+    if data_args["normalize"]:
+        img_transforms.append(transforms.Normalize((0.5,), (0.5,)))
+
+    return transforms.Compose(dataset_transforms), transforms.Compose(img_transforms)
 
 class ReplaceNans:
 

@@ -2,14 +2,20 @@
 # -----    Model    -----
 # -----------------------
 model:
-    noise_dim: 2
+    noise_dim: 100
     n_blocks: 5 
     depth_increase_factor: 2
+    generator: "dcgan" # Use DCGan or defaut Generator
+    discriminator: "dcgan" # Use DCGan or default (multiscale) discriminator
+    ngf: 64
+    ndf: 64
+    nc: 1
+    film_layers: "1,2" #Layers to FiLM, separated by a comma
 # ------------------------------
 # -----    Train Params    -----
 # ------------------------------
 train:
-    batch_size: 20 # with 4 blocs : 120 for Adam,75 for ExtraAdam
+    batch_size: 780 # with 4 blocs : 120 for Adam,75 for ExtraAdam
     early_break_epoch: 0 # Break an epoch loop after early_break_epoch steps in this epoch
     init_chkpt_dir: null # can initialize from a checkpoint directory
     init_chkpt_step: "latest" # can give path to saved checkpoint
@@ -17,7 +23,7 @@ train:
     lambda_gan: 1 # Gan loss scaling constant
     lambda_L: 1 # Matching loss scaling constant
     lr_d: 0.00001 # Discriminator's learning rate
-    lr_g: 0.001 # Generator's learning rate
+    lr_g: 0.0002 # Generator's learning rate
     matching_loss: l1 # Which matching loss to use: l2 | l1 | weighted
     n_epochs: 10001 # How many training epochs
     num_D_accumulations: 1 # How many gradients to accumulate in current batch (different generator predictions) before doing one discriminator optimization step
@@ -56,3 +62,5 @@ data:
     crop_to_inner_square: false # crop metos and imgs to the size of the real_img's inner square
     clip_reflectance: 0.9 # set to -1 not to use this transform
     noq: 300 # if it's not null quantize the data to no_of_quantiles
+    image_size: 64
+    normalize: true

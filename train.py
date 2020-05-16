@@ -24,14 +24,14 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
 
     for idx, sample in enumerate(iterator):
         losses = Dict({"d": 0, "g": 0, "matching": 0})
-        x = sample["metos"] #.to(device)
-        y = sample["real_imgs"] #.to(device)
+        x = sample["metos"]#.to(device)
+        y = sample["real_imgs"]#s.to(device)
 
         # update discriminator
         optimizers.d.zero_grad()
         for k in range(disc_step):
             #noise = torch.randn(x.shape[0], noise_dim).to(device)
-            noise = disc_noise[idx, k, :x.shape[0]]
+            noise = disc_noise[idx, k, :x.shape[0]] #x.shape[0] represents the true batch_size (useful for the last batch especially)
             y_hat = models.g(x, noise)
             losses.d += models.d.compute_loss(y, 1) + models.d.compute_loss(y_hat, 0)
 
@@ -44,7 +44,7 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
         # update generator
         optimizers.g.zero_grad()
         #noise = torch.randn(x.shape[0], noise_dim).to(device)
-        noise = gen_noise[idx, :x.shape[0]]
+        noise = gen_noise[idx, :x.shape[0]] #x.shape[0] represents the true batch_size (useful for the last batch especially)
         y_hat = models.g(x, noise)
         losses.g = models.d.compute_loss(y_hat, 1)
         if feature_extraction is None:

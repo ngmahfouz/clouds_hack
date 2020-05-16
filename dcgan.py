@@ -19,7 +19,7 @@ from film import FiLM
 import data
 from preprocessing import ReplaceNans, get_transforms
 
-# python3 dcgan.py --dataset low_clouds --outf out_dcgan_lc_film_64 --dataroot data_dcgan --cuda --niter 200
+# python3 dcgan.py --dataset low_clouds --outf out_dcgan_lc_film_0_64 --dataroot data_dcgan --cuda --niter 200
 # python3 dcgan.py --dataset low_clouds --outf out_dcgan_lc_film_128 --dataroot data_dcgan --cuda --niter 200 --imageSize 128
 
 parser = argparse.ArgumentParser()
@@ -42,6 +42,7 @@ parser.add_argument('--netD', default='', help="path to netD (to continue traini
 parser.add_argument('--outf', default='.', help='folder to output images and model checkpoints')
 parser.add_argument('--manualSeed', type=int, help='manual seed')
 parser.add_argument('--classes', default='bedroom', help='comma separated list of classes for the lsun data set')
+parser.add_argument('--film_layers',  default="", help='delimited list input of layers to FiLM', type=str)
 parser.add_argument("-c", "--config_file", type=str, help="YAML configuration file", default="default_training_config.yaml")
 
 opt = parser.parse_args()
@@ -134,6 +135,10 @@ ngpu = int(opt.ngpu)
 nz = int(opt.nz)
 ngf = int(opt.ngf)
 ndf = int(opt.ndf)
+if opt.film_layers == "":
+    layers_to_film = []
+else:
+    layers_to_film = [int(item) for item in opt.film_layers.split(',')]
 
 
 # custom weights initialization called on netG and netD
@@ -147,11 +152,11 @@ def weights_init(m):
 
 
 class Generator2(nn.Module):
-    def __init__(self, ngpu, img_size):
+    def __init__(self, ngpu, img_size, layers_to_film=[]):
         super().__init__()
         self.ngpu = ngpu
         self.log_first_out_channels = int(math.log2(img_size)) - 3 # For 64=2^6 the first output is 8 = 2^3 . For 128 = 2^7 it's 16=2^4 . We remove 3 each time
-        self.layers_to_film = []
+        self.layers_to_film = layers_to_film
         cblocks_list = []
         
         stride = 1
@@ -223,7 +228,7 @@ class Generator(nn.Module):
 
 
 # netG = Generator(ngpu).to(device)
-netG = Generator2(ngpu, opt.imageSize).to(device)
+netG = Generator2(ngpu, opt.imageSize, layers_to_film).to(device)
 netG.apply(weights_init)
 if opt.netG != '':
     netG.load_state_dict(torch.load(opt.netG))
