@@ -28,17 +28,18 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
         y = sample["real_imgs"]#s.to(device)
 
         # update discriminator
-        optimizers.d.zero_grad()
+        losses.d = 0
         for k in range(disc_step):
+            optimizers.d.zero_grad()
             #noise = torch.randn(x.shape[0], noise_dim).to(device)
             noise = disc_noise[idx, k, :x.shape[0]] #x.shape[0] represents the true batch_size (useful for the last batch especially)
             y_hat = models.g(x, noise)
-            losses.d += models.d.compute_loss(y, 1) + models.d.compute_loss(y_hat, 0)
+            losses.d = models.d.compute_loss(y, 1) + models.d.compute_loss(y_hat, 0)
 
             losses.d.backward()
-            total_steps = elapsed_epochs * iterator_len + idx
+            total_steps = elapsed_epochs * iterator_len + idx * disc_step + k
             optimizers.d = utils.optim_step(
-                optimizers.d, train_args["optimizer"], total_steps, idx
+                optimizers.d, train_args["optimizer"], total_steps, idx * disc_step + k
             )
 
         # update generator
