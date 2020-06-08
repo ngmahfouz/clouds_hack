@@ -51,6 +51,9 @@ if train_args["use_wandb"]:
     import wandb
     wandb.init(project="clouds_hack")
 
+
+TRAIN_FILENAME_PREFIX = "train_"
+
 dataset_transforms, img_transforms = get_transforms(data_args)
 clouds = data.LowClouds(data_args["path"], data_args["load_limit"], transform=dataset_transforms, device=device, img_transforms=img_transforms)
 nb_images = len(clouds)
@@ -119,8 +122,14 @@ def infer_and_save(dec, loader, i, n_infer=5, filename_prefix="val_"):
     for sample in loader:
         x = sample["metos"].to(device)
         y = sample["real_imgs"].to(device)
+
+        #If we do inference on the training set, no need to generate (large) training batch_size images
+        if filename_prefix == TRAIN_FILENAME_PREFIX:
+            x = x[:val_args["set_size"]]
+            y = y[:val_args["set_size"]]
+
         y_mean = y.mean(0)
-        print("Loss of the mean image : ", ((y_mean - y) ** 2).mean(), flush=True)
+        print("L1 Loss of the mean image : ", ((y_mean - y).abs()).mean(), flush=True)
         print("Standard deviation of the mean image : ", y_mean.std(), flush=True)
 
         if i == 0:
@@ -147,6 +156,10 @@ def infer_and_save(dec, loader, i, n_infer=5, filename_prefix="val_"):
                 "predicted" : [wandb.Image(j) for j in y_hats]
             })
 
+        #If we do inference on the training set, no need to generate images on multiple batches
+        if filename_prefix == TRAIN_FILENAME_PREFIX:
+            break
+
 if train_args["use_wandb"]:
     wandb.config.update(data_args)
     wandb.config.update(model_args)
@@ -171,7 +184,11 @@ for i in range(train_args["n_epochs"]):
         log_this_epoch = True
     models, avg_loss, optimizers = train.train(models, train_loader, optimizers, nn.MSELoss(), device, train_args, model_args, i, feature_extraction, log_this_epoch)
     if i % val_args["infer_every"] == 0:
+        print("====== VALIDATION INFERENCE =======")
         infer_and_save(dec, val_loader, i, train_args["n_infer"])
+    if i % train_args["infer_every"] == 0:
+        print("====== TRAINING INFERENCE =======")
+        infer_and_save(dec, train_loader, i, train_args["n_infer"], filename_prefix=TRAIN_FILENAME_PREFIX)
 
     if i % train_args["log_every"] == 0:
         print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching}", flush=True)
