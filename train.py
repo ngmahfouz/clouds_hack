@@ -35,11 +35,11 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
             y_hat = models.g(x, noise)
             losses.d += models.d.compute_loss(y, 1) + models.d.compute_loss(y_hat, 0)
 
-        losses.d.backward()
-        total_steps = elapsed_epochs * iterator_len + idx
-        optimizers.d = utils.optim_step(
-            optimizers.d, train_args["optimizer"], total_steps, idx
-        )
+            losses.d.backward()
+            total_steps = elapsed_epochs * iterator_len + idx
+            optimizers.d = utils.optim_step(
+                optimizers.d, train_args["optimizer"], total_steps, idx
+            )
 
         # update generator
         optimizers.g.zero_grad()
