@@ -49,7 +49,7 @@ with open(args.config_file) as f:
 
 if train_args["use_wandb"]:
     import wandb
-    wandb.init(project="clouds_hack")
+    wandb.init(project="clouds_hack", dir=args.output_dir)
 
 
 TRAIN_FILENAME_PREFIX = "train_"
@@ -64,7 +64,7 @@ val_loader = DataLoader(val_clouds, batch_size=train_args["batch_size"])
 if model_args["film_layers"] == "":
     layers_to_film = []
 else:
-    layers_to_film = [int(item) for item in model_args["film_layers"].split(',')]
+    layers_to_film = [int(item) for item in model_args["film_layers"].split('a')]
 
 if model_args["generator"] == "dcgan":
     dec = model.DCGANGenerator(data_args["image_size"], layers_to_film, model_args["noise_dim"], model_args["ngf"], model_args["nc"])
@@ -93,7 +93,16 @@ else:
     disc = MultiDiscriminator(in_channels=1, device=device)
 
 disc = disc.to(device)
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        m.weight.data.normal_(0.0, 0.02)
+    elif classname.find('BatchNorm') != -1:
+        m.weight.data.normal_(1.0, 0.02)
+        m.bias.data.fill_(0)
 models = Dict({"g": dec, "d": disc})
+models.g.apply(weights_init)
+models.d.apply(weights_init)
 g_optimizer, d_optimizer = get_optimizers(models["g"], models["d"], Dict(yaml_config))
 optimizers = Dict({
     "g": g_optimizer,
@@ -149,7 +158,7 @@ def infer_and_save(dec, loader, i, n_infer=5, filename_prefix="val_"):
 
         y_hats = torch.cat(y_hats, axis=0)
         print("Standard deviation of the first image : ", y_hats[0].std(), flush=True)
-        save_image(y_hats, f"{args.output_dir}/{filename_prefix}predicted_imgs_{i}-{j}.png")
+        save_image(y_hats, f"{args.output_dir}/{filename_prefix}predicted_imgs_{i}-{j}.png", normalize=True)
         # wandb.save(f"{args.output_dir}/{filename_prefix}predicted_imgs_{i}-{j}.png")
         if train_args["use_wandb"]:
             wandb.log({
@@ -177,15 +186,20 @@ def log_train_stats(epoch, avg_losses):
         })
 
 
+print("Generator : ", models.g)
+print("Discriminator : ", models.d)
+print("Generator optimizer : ", optimizers.g)
+print("Discriminator optimizer : ", optimizers.d)
+
 for i in range(train_args["n_epochs"]):
     print(f"Epoch {i+1}", flush=True)
     log_this_epoch = False
     if i % train_args["log_every"] == 0:
         log_this_epoch = True
-    models, avg_loss, optimizers = train.train(models, train_loader, optimizers, nn.MSELoss(), device, train_args, model_args, i, feature_extraction, log_this_epoch)
+    models, avg_loss, optimizers = train.train(models, train_loader, optimizers, nn.L1Loss(), device, train_args, model_args, i, feature_extraction, log_this_epoch)
     if i % val_args["infer_every"] == 0:
         print("====== VALIDATION INFERENCE =======")
-        infer_and_save(dec, val_loader, i, train_args["n_infer"])
+        infer_and_save(dec, val_loader, i, val_args["n_infer"])
     if i % train_args["infer_every"] == 0:
         print("====== TRAINING INFERENCE =======")
         infer_and_save(dec, train_loader, i, train_args["n_infer"], filename_prefix=TRAIN_FILENAME_PREFIX)
