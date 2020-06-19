@@ -74,7 +74,7 @@ dec = dec.to(device)
 log_csv_file = pd.DataFrame(columns=["Epoch", "Discriminator_loss", "Generator_loss", "Matching_loss"])
 
 if train_args["feature_extractor_loss"]:
-    feature_extractor, feature_extractor_input_size = utils.initialize_model(train_args["feature_extractor_model"])
+    feature_extractor, feature_extractor_input_size, _ = utils.initialize_model(train_args["feature_extractor_model"])
     feature_extractor = feature_extractor.to(device)
     feature_extractor_transforms = transforms.Compose([transforms.ToPILImage(),
                                 transforms.Resize((feature_extractor_input_size, feature_extractor_input_size)),

@@ -84,7 +84,7 @@ def initialize_model(model_name="resnet", num_classes=-1, feature_extract=True, 
     modules=list(model_ft.children())[:-1]
     feature_extractor = nn.Sequential(*modules)
 
-    return feature_extractor, input_size
+    return feature_extractor, input_size, num_ftrs
 
 
 def set_parameter_requires_grad(model, feature_extracting):
