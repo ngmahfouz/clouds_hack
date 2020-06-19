@@ -9,6 +9,86 @@ import torch.nn as nn
 from addict import Dict
 import utils
 
+#!/usr/bin/env python
+"""
+
+
+2020-03-03 09:08:28
+"""
+import torch
+import torch.nn as nn
+from addict import Dict
+import utils
+
+def train_dcgan(models, iterator, optimizers, loss_fun, device, train_args, model_args, elapsed_epochs, feature_extraction=None, log_this_epoch=False):
+
+    netD = models.d
+    netG = models.g
+    optimizerD = optimizers.d
+    optimizerG = optimizers.g
+    criterion = models.d.criterion
+    real_label = 1
+    fake_label = 0
+    epoch_losses = Dict({"d": 0, "g": 0, "matching": 0})
+    losses = Dict({"d": 0, "g": 0, "matching": 0})
+    nz = model_args["noise_dim"]
+
+    for i, data in enumerate(iterator, 0):
+        ############################
+        # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
+        ###########################
+        # train with real
+
+        netD.zero_grad()
+        data = [data["real_imgs"], data["metos"]]
+        
+        real_cpu = data[0].to(device)
+        batch_size = real_cpu.size(0)
+        label = torch.full((batch_size,), real_label, device=device)
+
+        output = netD(real_cpu)
+        # import pdb
+        # pdb.set_trace()
+        errD_real = criterion(output, label)
+        errD_real.backward()
+        D_x = output.mean().item()
+
+        # train with fake
+        noise = torch.randn(batch_size, nz, device=device)
+        fake = netG(data[1].to(device), noise)
+        # fake = netG(noise)
+        label.fill_(fake_label)
+        output = netD(fake.detach())
+        errD_fake = criterion(output, label)
+        errD_fake.backward()
+        D_G_z1 = output.mean().item()
+        errD = errD_real + errD_fake
+        optimizerD.step()
+
+        ############################
+        # (2) Update G network: maximize log(D(G(z)))
+        ###########################
+        netG.zero_grad()
+        label.fill_(real_label)  # fake labels are real for generator cost
+        output = netD(fake)
+        errG = criterion(output, label)
+        errG.backward()
+        D_G_z2 = output.mean().item()
+        optimizerG.step()
+
+        losses.matching = loss_fun(fake, real_cpu)
+        losses.g = errG
+        losses.d = errD
+
+        if log_this_epoch:
+            for k in epoch_losses.keys():
+                epoch_losses[k] += losses[k].item() / len(iterator)
+        else:
+            epoch_losses = None
+
+    return models, epoch_losses, optimizers
+
+
 def train(models, iterator, optimizers, loss_fun, device, train_args, model_args, elapsed_epochs, feature_extraction=None, log_this_epoch=False):
 
     batch_size = train_args["batch_size"]
@@ -34,7 +114,7 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
             #noise = torch.randn(x.shape[0], noise_dim).to(device)
             noise = disc_noise[idx, k, :x.shape[0]] #x.shape[0] represents the true batch_size (useful for the last batch especially)
             y_hat = models.g(x, noise)
-            losses.d = models.d.compute_loss(y, 1) + models.d.compute_loss(y_hat, 0)
+            losses.d = models.d.compute_loss(y, 1) + models.d.compute_loss(y_hat.detach(), 0)
 
             losses.d.backward()
             total_steps = elapsed_epochs * iterator_len + idx * disc_step + k
@@ -45,8 +125,8 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
         # update generator
         optimizers.g.zero_grad()
         #noise = torch.randn(x.shape[0], noise_dim).to(device)
-        noise = gen_noise[idx, :x.shape[0]] #x.shape[0] represents the true batch_size (useful for the last batch especially)
-        y_hat = models.g(x, noise)
+        #noise = gen_noise[idx, :x.shape[0]] #x.shape[0] represents the true batch_size (useful for the last batch especially)
+        #y_hat = models.g(x, noise)
         losses.g = models.d.compute_loss(y_hat, 1)
         if feature_extraction is None:
             losses.matching = loss_fun(y_hat, y)
