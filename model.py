@@ -9,6 +9,8 @@ from pathlib import Path
 import torch.nn as nn
 from film import FiLM
 import math
+from torchvision import models, transforms
+import utils
 
 class Deconvolver(nn.Module):
     def __init__(self, n_in, n_out, n_blocks=4, depth_increase_factor=2, noise_dim=2):
@@ -131,3 +133,37 @@ class DCGANGenerator(nn.Module):
                 x_ = layer(x_)
         return x_
 
+class MetosRegressor(nn.Module):
+
+    def __init__(self, train_args, device):
+        super().__init__()
+        self.device = device
+        feature_extractor, feature_extractor_input_size, self.num_features = utils.initialize_model(train_args["feature_extractor_model"])
+        feature_extractor = feature_extractor.to(device)
+        feature_extractor_transforms = transforms.Compose([transforms.ToPILImage(),
+                                    transforms.Resize((feature_extractor_input_size, feature_extractor_input_size)),
+                                    transforms.ToTensor(),
+                                    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                    std=[0.229, 0.224, 0.225])])
+
+        self.feature_extraction = {"extractor" : feature_extractor, "transformations": feature_extractor_transforms}
+
+        self.regression_head = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(in_features=self.num_features, out_features=train_args["hidden_features"]),
+            nn.ReLU(),
+            nn.Linear(in_features=train_args["hidden_features"], out_features=train_args["hidden_features"]),
+            nn.ReLU(),
+            nn.Linear(in_features=train_args["hidden_features"], out_features=train_args["num_metos"])
+        )
+
+    def forward(self, x):
+        
+        rgb_x = torch.cat([x] * 3, dim=1) #converts grayscale to RGB by replicating the single channel 3 times
+        rgb_normalized_x = []
+        for j in range(x.shape[0]):
+            rgb_normalized_x.append(self.feature_extraction["transformations"](rgb_x[j].cpu()))
+        rgb_x = torch.stack(rgb_normalized_x).to(self.device)
+        feature_maps_x = self.feature_extraction["extractor"](rgb_x)
+
+        return self.regression_head(feature_maps_x)
