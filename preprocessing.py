@@ -11,6 +11,8 @@ def get_transforms(data_args):
     replace_nans_transform = ReplaceNans()
     replace_nans_transform.set_stats(dataset_stats)
     dataset_transforms = [replace_nans_transform]
+    if data_args["with_stats"]:
+        dataset_transforms.append(Standardize(dataset_stats))
     img_transforms = [transforms.ToPILImage()]
 
     if data_args["image_size"] != 128:
@@ -34,5 +36,19 @@ class ReplaceNans:
         for c in range(sample["metos"].shape[0]):
             if self.nan_value == "Mean":
                 sample["metos"][c][torch.isnan(sample["metos"][c])] = self.means[c]
+
+        return sample
+
+class Standardize:
+
+    def __init__(self, stats):
+        self.means, self.stds = stats[:,0], stats[:,1]
+
+    def __call__(self, sample):
+        device = sample["metos"].device
+        dtype = sample["metos"].dtype
+        self.means = torch.tensor(self.means, device=device, dtype=dtype)
+        self.stds = torch.tensor(self.stds, device=device, dtype=dtype)
+        sample["metos"] = (sample["metos"] - self.means) / self.stds
 
         return sample
