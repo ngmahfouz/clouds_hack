@@ -79,4 +79,10 @@ for i in range(experiments_args['repeat']):
     with open(f"{current_run_path}/training_config.yaml", "w") as f:
         yaml.dump(current_training_config, f)
 
+    #Update the wandb sync file
+    with  open(f"{experiments_args['exp_dir']}/{experiments_args['name']}/wandb_sync_script.sh", "a") as f:
+        if i == 0:
+            f.write("#!/bin/bash\n")
+        f.write(f"wandb sync {current_run_path}/wandb\n")
+
     os.system(f"sbatch {current_run_path}/slurm_job.slrm")
