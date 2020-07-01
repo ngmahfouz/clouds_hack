@@ -32,10 +32,11 @@ os.environ['WANDB_MODE'] = 'dryrun'
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("-o", "--output_dir", type=str, help="Where to save files", default="./metos_regressor")
+parser.add_argument("-o", "--output_dir", type=str, help="Where to save files", default="./uni_metos_regressor")
 parser.add_argument("-c", "--config_file", type=str, help="YAML configuration file", default="default_training_config.yaml")
 parser.add_argument("-t", "--train", type=str, help="Train the regressor or just load the previous one", default="True")
-parser.add_argument("-g", "--generator_path", type=str, help="Path to the generator to evaluate", default="state_2500.pt")
+parser.add_argument("-g", "--generator_path", type=str, help="Path to the generator to evaluate", default="state_2000.pt")
+parser.add_argument("-n", "--number_targets", type=str, help="Number of values to regress : 1 for mean, 8 for all metos", default="8")
 
 args = parser.parse_args()
 
@@ -72,7 +73,8 @@ val_loader = DataLoader(val_clouds, batch_size=train_args["batch_size"])
 log_csv_file = pd.DataFrame(columns=["Epoch", "Discriminator_loss", "Generator_loss", "Matching_loss"])
 
 train_args["hidden_features"] = 32
-train_args["num_metos"] = 8
+train_args["num_metos"] = int(args.number_targets)
+val_args["infer_every"] = 20
 model = MetosRegressor(train_args, device).to(device)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=1e-3, betas=(0.5, 0.999))
@@ -154,7 +156,7 @@ def log_train_stats(epoch, avg_losses):
         "d/loss" : avg_losses.d
         })
 
-
+previous_best_val_loss = None
 if args.train == "True":
     print("====== STARTING TRAINING =======")
     for i in range(train_args["n_epochs"]):
@@ -164,6 +166,10 @@ if args.train == "True":
             optimizer.zero_grad()
             y = sample["metos"].to(device)
             x = sample["real_imgs"].to(device)
+
+            # If the metos regressor is uni-output, the target will be the mean of the 8 metos rather than all of them
+            if train_args["num_metos"] == 1:
+                y = y.mean(dim=1, keepdims=True)
 
             y_hat = model(x)
             loss = criterion(y_hat, y)
@@ -180,9 +186,14 @@ if args.train == "True":
 
         if i % val_args["infer_every"] == 0:
             print("====== VALIDATION INFERENCE =======")
+
             for idx, sample in enumerate(val_loader):
                 y = sample["metos"].to(device)
                 x = sample["real_imgs"].to(device)
+
+                # If the metos regressor is uni-output, the target will be the mean of the 8 metos rather than all of them
+                if train_args["num_metos"] == 1:
+                    y = y.mean(dim=1, keepdims=True)
 
                 y_hat = model(x)
                 loss = criterion(y_hat, y)
@@ -190,15 +201,23 @@ if args.train == "True":
                 current_epoch_loss+= loss.item()
 
             current_epoch_loss/= len(train_loader)
+            if previous_best_val_loss is None:
+                previous_best_val_loss = current_epoch_loss
             print(f"Validation loss at epoch {i+1} : {current_epoch_loss}", flush=True)
             wandb.log({"epoch" : i, "loss/valid" : current_epoch_loss})
             torch.save(model.state_dict(), f"{args.output_dir}/state_{i}.pt")
             torch.save(model.state_dict(), f"{args.output_dir}/state_latest.pt")
             wandb.save(f"{args.output_dir}/state_{i}.pt")
+
+            if current_epoch_loss <= previous_best_val_loss:
+                print(f"New best Validation loss : {current_epoch_loss} (previous was {previous_best_val_loss})")
+                torch.save(model.state_dict(), f"{args.output_dir}/state_best.pt")
+                wandb.save(f"{args.output_dir}/state_best.pt")
+                previous_best_val_loss = current_epoch_loss
         
 
 else:
-    model.load_state_dict(torch.load(f"{args.output_dir}/state_latest.pt"))
+    model.load_state_dict(torch.load(f"{args.output_dir}/state_best.pt"))
 
 from model import DCGANGenerator
 gan_generator = DCGANGenerator(64, layers_to_film=[0,1]).to(device)
@@ -224,15 +243,24 @@ for idx, sample in enumerate(val_loader):
         real_imgs_predicted_metos = metos_regressor(real_imgs).cpu().detach().numpy()
 
     metos = metos.cpu().detach().numpy()
+
+    #Uni-output regressor case : the target is the mean rather than all 8 metos
+    if train_args["num_metos"] == 1:
+        generated_imgs_metos = generated_imgs_metos.mean(axis=1, keepdims=True)
+        real_imgs_predicted_metos =real_imgs_predicted_metos.mean(axis=1, keepdims=True)
+        metos = metos.mean(axis=1, keepdims=True)
+    
     results["all_metos"].append(metos)
     results["all_generated_imgs_metos"].append(generated_imgs_metos)
     results["all_real_imgs_predicted_metos"].append(real_imgs_predicted_metos)
 
     real_generated_correlation = compute_correlation(generated_imgs_metos, metos)
     predicted_generated_correlation = compute_correlation(generated_imgs_metos, real_imgs_predicted_metos)
+    real_predicted_correlation = compute_correlation(real_imgs_predicted_metos, metos)
     results["batch_correlations"].append({
         "real_generated_correlation" : real_generated_correlation,
-        "predicted_generated_correlation" : predicted_generated_correlation
+        "predicted_generated_correlation" : predicted_generated_correlation,
+        "real_predicted_correlation" : real_predicted_correlation
     })
 
 all_metos = np.concatenate(results["all_metos"])
@@ -259,7 +287,16 @@ for metos_index in range(all_metos.shape[1]):
     plt.xlabel(f"Generated imgs meto {metos_index} (predicted)")
     plt.savefig(f"{args.output_dir}/generated_predicted_{metos_index}.png")
 
+    plt.xlim(-big_max, big_max)
+    plt.ylim(-big_max, big_max)
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.scatter(all_metos[:, metos_index], all_real_imgs_predicted_metos[:,metos_index])
+    plt.ylabel(f"Real imgs meto {metos_index} (predicted)")
+    plt.xlabel(f"Real meto {metos_index}")
+    plt.savefig(f"{args.output_dir}/real_predicted_{metos_index}.png")
+
 results["real_generated_correlation"] = compute_correlation(all_generated_imgs_metos, all_metos)
 results["predicted_generated_correlation"] = compute_correlation(all_generated_imgs_metos, all_real_imgs_predicted_metos)
+results["real_predicted_correlation"] = compute_correlation(all_metos, all_real_imgs_predicted_metos)
 
 torch.save(results, f"{args.output_dir}/results.pth")
