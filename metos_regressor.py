@@ -23,6 +23,8 @@ import argparse
 import yaml
 import pandas as pd
 import numpy as np
+import seaborn as sns
+from scipy.stats import spearmanr
 import matplotlib.pyplot as plt
 from preprocessing import ReplaceNans, get_transforms
 from optim import get_optimizers
@@ -32,7 +34,7 @@ os.environ['WANDB_MODE'] = 'dryrun'
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("-o", "--output_dir", type=str, help="Where to save files", default="./uni_metos_regressor")
+parser.add_argument("-o", "--output_dir", type=str, help="Where to save files", default="./fft_multi_metos_regressor")
 parser.add_argument("-c", "--config_file", type=str, help="YAML configuration file", default="default_training_config.yaml")
 parser.add_argument("-t", "--train", type=str, help="Train the regressor or just load the previous one", default="True")
 parser.add_argument("-g", "--generator_path", type=str, help="Path to the generator to evaluate", default="state_2000.pt")
@@ -74,6 +76,7 @@ log_csv_file = pd.DataFrame(columns=["Epoch", "Discriminator_loss", "Generator_l
 
 train_args["hidden_features"] = 32
 train_args["num_metos"] = int(args.number_targets)
+data_args["load_limit"] = -1
 val_args["infer_every"] = 20
 model = MetosRegressor(train_args, device).to(device)
 criterion = nn.MSELoss()
@@ -163,6 +166,7 @@ if args.train == "True":
         log_this_epoch = False
         current_epoch_loss = 0
         for idx, sample in enumerate(train_loader):
+            model.train()
             optimizer.zero_grad()
             y = sample["metos"].to(device)
             x = sample["real_imgs"].to(device)
@@ -185,6 +189,7 @@ if args.train == "True":
         wandb.log({"epoch" : i, "loss/train" : current_epoch_loss})
 
         if i % val_args["infer_every"] == 0:
+            model.eval()
             print("====== VALIDATION INFERENCE =======")
 
             for idx, sample in enumerate(val_loader):
@@ -227,11 +232,11 @@ results = {"batch_correlations" : [], "all_metos" : [], "all_generated_imgs_meto
 
 def compute_correlation(x, y):
     #x,y have shape (batch_size,num_metos)
-    correlation = []
+    correlations = []
     for metos_index in range(x.shape[1]):
         df = pd.DataFrame({"x": x[:,metos_index], "y": y[:,metos_index]})
-        correlation.append(df.corr(method="spearman").iloc[1,0])
-    return correlation
+        correlations.append(spearmanr(df))
+    return correlations
 
 for idx, sample in enumerate(val_loader):
     metos = sample["metos"]
@@ -263,6 +268,49 @@ for idx, sample in enumerate(val_loader):
         "real_predicted_correlation" : real_predicted_correlation
     })
 
+    for i in range(min(10, generated_images.shape[0])):
+        import pdb
+        
+        image = {"real" : utils.to_0_1(real_imgs[i]).squeeze(0).cpu().detach().numpy(), "fake" : utils.to_0_1(generated_images[i]).squeeze(0).cpu().detach().numpy()}
+        fft_f = utils.fft(image['fake'])
+        fft_r = utils.fft(image['real'])
+
+        plt.subplot(2, 4, 1)
+        plt.imshow(image['real'], cmap="gray")
+        plt.title('real image')
+
+        plt.subplot(2, 4, 2)
+        
+        plt.imshow(fft_r,  cmap="gray")
+        plt.title('DFT of real image')
+
+        plt.subplot(2, 4, 3)
+        sns.distplot(fft_r.flatten())
+        plt.title('Histogram of the DFT of the real image')
+
+        ax = plt.subplot(2, 4, 4)
+        sns.distplot(fft_r.flatten(), ax=ax)
+        sns.distplot(fft_f.flatten(), ax=ax)
+        plt.title("Histograms of the DFTs of the real vs generated images")
+
+        plt.subplot(2, 4, 5)
+        
+        plt.imshow(image['fake'], cmap="gray")
+        plt.title('generated image')
+
+        plt.subplot(2, 4, 6)
+        plt.imshow(fft_f, cmap="gray")
+        plt.title('DFT of generated image')
+
+        plt.subplot(2, 4, 7)
+        sns.distplot(fft_f.flatten())
+        plt.title('Histogram of the DFT of the generated image')
+
+        fft_d = np.linalg.norm(fft_f - fft_r)/fft_f.size()
+        print("distance between the two DFTs = ", fft_d)
+        plt.savefig(f"{args.output_dir}/fft_{idx}_{i}.png")
+        plt.close()
+
 all_metos = np.concatenate(results["all_metos"])
 all_generated_imgs_metos = np.concatenate(results["all_generated_imgs_metos"])
 all_real_imgs_predicted_metos = np.concatenate(results["all_real_imgs_predicted_metos"])
@@ -270,6 +318,9 @@ all_real_imgs_predicted_metos = np.concatenate(results["all_real_imgs_predicted_
 for metos_index in range(all_metos.shape[1]):
     
     big_max = max(np.abs(all_metos).max(), np.abs(all_generated_imgs_metos).max(), np.abs(all_real_imgs_predicted_metos).max())
+    diag = np.linspace(-big_max, big_max, 100)
+    std = 0.2
+    alpha = 0.1
 
     plt.xlim(-big_max, big_max)
     plt.ylim(-big_max, big_max)
@@ -277,6 +328,9 @@ for metos_index in range(all_metos.shape[1]):
     plt.scatter(all_generated_imgs_metos[:, metos_index], all_metos[:,metos_index])
     plt.ylabel(f"Real meto {metos_index}")
     plt.xlabel(f"Generated imgs meto {metos_index} (predicted)")
+    eps = diag * std
+    plt.plot(diag, diag)
+    plt.fill_between(diag, diag - eps, diag + eps, alpha=alpha)
     plt.savefig(f"{args.output_dir}/generated_real_{metos_index}.png")
 
     plt.xlim(-big_max, big_max)
@@ -285,6 +339,9 @@ for metos_index in range(all_metos.shape[1]):
     plt.scatter(all_generated_imgs_metos[:, metos_index], all_real_imgs_predicted_metos[:,metos_index])
     plt.ylabel(f"Real imgs meto {metos_index} (predicted)")
     plt.xlabel(f"Generated imgs meto {metos_index} (predicted)")
+    eps = diag * std
+    plt.plot(diag, diag)
+    plt.fill_between(diag, diag - eps, diag + eps, alpha=alpha)
     plt.savefig(f"{args.output_dir}/generated_predicted_{metos_index}.png")
 
     plt.xlim(-big_max, big_max)
@@ -293,6 +350,9 @@ for metos_index in range(all_metos.shape[1]):
     plt.scatter(all_metos[:, metos_index], all_real_imgs_predicted_metos[:,metos_index])
     plt.ylabel(f"Real imgs meto {metos_index} (predicted)")
     plt.xlabel(f"Real meto {metos_index}")
+    eps = diag * std
+    plt.plot(diag, diag)
+    plt.fill_between(diag, diag - eps, diag + eps, alpha=alpha)
     plt.savefig(f"{args.output_dir}/real_predicted_{metos_index}.png")
 
 results["real_generated_correlation"] = compute_correlation(all_generated_imgs_metos, all_metos)
