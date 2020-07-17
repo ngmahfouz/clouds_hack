@@ -64,6 +64,9 @@ if train_args["use_wandb"]:
 
 TRAIN_FILENAME_PREFIX = "train_"
 
+data_args["load_limit"] = -1
+val_args["set_size"] = 128
+#train_args["batch_size"] = 1000
 dataset_transforms, img_transforms = get_transforms(data_args)
 clouds = data.LowClouds(data_args["path"], data_args["load_limit"], transform=dataset_transforms, device=device, img_transforms=img_transforms)
 nb_images = len(clouds)
@@ -76,7 +79,6 @@ log_csv_file = pd.DataFrame(columns=["Epoch", "Discriminator_loss", "Generator_l
 
 train_args["hidden_features"] = 32
 train_args["num_metos"] = int(args.number_targets)
-data_args["load_limit"] = -1
 val_args["infer_every"] = 20
 model = MetosRegressor(train_args, device).to(device)
 criterion = nn.MSELoss()
@@ -190,6 +192,7 @@ if args.train == "True":
 
         if i % val_args["infer_every"] == 0:
             model.eval()
+            current_epoch_loss = 0
             print("====== VALIDATION INFERENCE =======")
 
             for idx, sample in enumerate(val_loader):
@@ -205,7 +208,7 @@ if args.train == "True":
 
                 current_epoch_loss+= loss.item()
 
-            current_epoch_loss/= len(train_loader)
+            current_epoch_loss/= len(val_loader)
             if previous_best_val_loss is None:
                 previous_best_val_loss = current_epoch_loss
             print(f"Validation loss at epoch {i+1} : {current_epoch_loss}", flush=True)
@@ -233,10 +236,17 @@ results = {"batch_correlations" : [], "all_metos" : [], "all_generated_imgs_meto
 def compute_correlation(x, y):
     #x,y have shape (batch_size,num_metos)
     correlations = []
+    corrs = []
+    pvalues = []
     for metos_index in range(x.shape[1]):
         df = pd.DataFrame({"x": x[:,metos_index], "y": y[:,metos_index]})
-        correlations.append(spearmanr(df))
-    return correlations
+        correlation_results = spearmanr(df)
+        correlations.append(correlation_results)
+        corrs.append(correlation_results.correlation)
+        pvalues.append(correlation_results.pvalue)
+
+    correlation_results_df = pd.DataFrame({"Correlation" : corrs, "P-value" : pvalues})
+    return correlations, correlation_results_df
 
 for idx, sample in enumerate(val_loader):
     metos = sample["metos"]
@@ -355,8 +365,11 @@ for metos_index in range(all_metos.shape[1]):
     plt.fill_between(diag, diag - eps, diag + eps, alpha=alpha)
     plt.savefig(f"{args.output_dir}/real_predicted_{metos_index}.png")
 
-results["real_generated_correlation"] = compute_correlation(all_generated_imgs_metos, all_metos)
-results["predicted_generated_correlation"] = compute_correlation(all_generated_imgs_metos, all_real_imgs_predicted_metos)
-results["real_predicted_correlation"] = compute_correlation(all_metos, all_real_imgs_predicted_metos)
+results["real_generated_correlation"], corr_df = compute_correlation(all_generated_imgs_metos, all_metos)
+corr_df.to_csv(f"{args.output_dir}/real_generated_correlation.csv")
+results["predicted_generated_correlation"], corr_df = compute_correlation(all_generated_imgs_metos, all_real_imgs_predicted_metos)
+corr_df.to_csv(f"{args.output_dir}/predicted_generated_correlation.csv")
+results["real_predicted_correlation"], corr_df = compute_correlation(all_metos, all_real_imgs_predicted_metos)
+corr_df.to_csv(f"{args.output_dir}/real_predicted_correlation.csv")
 
 torch.save(results, f"{args.output_dir}/results.pth")
