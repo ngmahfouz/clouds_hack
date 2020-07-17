@@ -5,6 +5,7 @@
 2020-03-03 08:52:16
 """
 import torch
+from torch.nn import Parameter
 from pathlib import Path
 import torch.nn as nn
 from film import FiLM
@@ -58,7 +59,7 @@ class UNetModule(nn.Module):
         return layers(x)
 
 class DCGANDiscriminator(nn.Module):
-    def __init__(self, img_size=128, ndf=64, nc=1):
+    def __init__(self, img_size=128, ndf=64, nc=1, use_spectral_norm=True):
         super().__init__()
 
         self.log_first_out_channels = int(math.log2(img_size)) - 3 # For 64=2^6 the first output is 8 = 2^3 . For 128 = 2^7 it's 16=2^4 . We remove 3 each time
@@ -73,13 +74,36 @@ class DCGANDiscriminator(nn.Module):
         for i in range(self.log_first_out_channels + 1):
             current_out_channels = ndf * 2 ** i
 
-            cblocks_list.append(nn.Conv2d(prev_out_channels, current_out_channels, 4, stride, padding, bias=False))
-            cblocks_list.append(nn.BatchNorm2d(current_out_channels))
+            conv_layer = nn.Conv2d(prev_out_channels, current_out_channels, 4, stride, padding, bias=False)
+            self.weights_init(conv_layer)
+
+            if use_spectral_norm:
+                cblocks_list.append(SpectralNorm(conv_layer))
+            else:
+                cblocks_list.append(conv_layer)
+
+            bn = nn.BatchNorm2d(current_out_channels)
+            self.weights_init(bn)
+            cblocks_list.append(bn)
             
             cblocks_list.append(nn.LeakyReLU(0.2, inplace=True))
             prev_out_channels = current_out_channels
 
-        self.model = nn.ModuleList(cblocks_list + [nn.Conv2d(current_out_channels, 1, 4, 1, 0, bias=False), nn.Sigmoid()])
+        conv_layer = nn.Conv2d(current_out_channels, 1, 4, 1, 0, bias=False)
+        self.weights_init(conv_layer)
+        if use_spectral_norm:
+            last_conv = SpectralNorm(conv_layer)
+        else:
+            last_conv = conv_layer
+        self.model = nn.ModuleList(cblocks_list + [last_conv, nn.Sigmoid()])
+
+    def weights_init(self, m):
+        classname = m.__class__.__name__
+        if classname.find('Conv') != -1:
+            m.weight.data.normal_(0.0, 0.02)
+        elif classname.find('BatchNorm') != -1:
+            m.weight.data.normal_(1.0, 0.02)
+            m.bias.data.fill_(0)
 
 
     def compute_loss(self, x, gt):
@@ -151,9 +175,13 @@ class MetosRegressor(nn.Module):
         self.regression_head = nn.Sequential(
             nn.Flatten(),
             nn.Linear(in_features=self.num_features, out_features=train_args["hidden_features"]),
+            nn.BatchNorm1d(train_args["hidden_features"]),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(in_features=train_args["hidden_features"], out_features=train_args["hidden_features"]),
+            nn.BatchNorm1d(train_args["hidden_features"]),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(in_features=train_args["hidden_features"], out_features=train_args["num_metos"])
         )
 
@@ -167,3 +195,65 @@ class MetosRegressor(nn.Module):
         feature_maps_x = self.feature_extraction["extractor"](rgb_x)
 
         return self.regression_head(feature_maps_x)
+
+# from https://github.com/christiancosgrove/pytorch-spectral-normalization-gan
+# /blob/master/spectral_normalization.py
+
+
+def l2normalize(v, eps=1e-12):
+    return v / (v.norm() + eps)
+
+
+class SpectralNorm(nn.Module):
+    def __init__(self, module, name="weight", power_iterations=1):
+        super(SpectralNorm, self).__init__()
+        self.module = module
+        self.name = name
+        self.power_iterations = power_iterations
+        if not self._made_params():
+            self._make_params()
+
+    def _update_u_v(self):
+        u = getattr(self.module, self.name + "_u")
+        v = getattr(self.module, self.name + "_v")
+        w = getattr(self.module, self.name + "_bar")
+
+        height = w.data.shape[0]
+        for _ in range(self.power_iterations):
+            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data), u.data))
+            u.data = l2normalize(torch.mv(w.view(height, -1).data, v.data))
+
+        # sigma = torch.dot(u.data, torch.mv(w.view(height,-1).data, v.data))
+        sigma = u.dot(w.view(height, -1).mv(v))
+        setattr(self.module, self.name, w / sigma.expand_as(w))
+
+    def _made_params(self):
+        try:
+            u = getattr(self.module, self.name + "_u")
+            v = getattr(self.module, self.name + "_v")
+            w = getattr(self.module, self.name + "_bar")
+            return True
+        except AttributeError:
+            return False
+
+    def _make_params(self):
+        w = getattr(self.module, self.name)
+
+        height = w.data.shape[0]
+        width = w.view(height, -1).data.shape[1]
+
+        u = Parameter(w.data.new(height).normal_(0, 1), requires_grad=False)
+        v = Parameter(w.data.new(width).normal_(0, 1), requires_grad=False)
+        u.data = l2normalize(u.data)
+        v.data = l2normalize(v.data)
+        w_bar = Parameter(w.data)
+
+        del self.module._parameters[self.name]
+
+        self.module.register_parameter(self.name + "_u", u)
+        self.module.register_parameter(self.name + "_v", v)
+        self.module.register_parameter(self.name + "_bar", w_bar)
+
+    def forward(self, *args):
+        self._update_u_v()
+        return self.module.forward(*args)
