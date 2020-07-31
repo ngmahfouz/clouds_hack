@@ -37,6 +37,7 @@ def initialize_model(model_name="resnet", num_classes=-1, feature_extract=True, 
         model_ft = models.vgg11_bn(pretrained=use_pretrained)
         set_parameter_requires_grad(model_ft, feature_extract)
         num_ftrs = model_ft.classifier[6].in_features
+        #num_ftrs = 25088
         
         #model_ft.classifier[6] = nn.Linear(num_ftrs,num_classes)
         input_size = 224
@@ -81,8 +82,12 @@ def initialize_model(model_name="resnet", num_classes=-1, feature_extract=True, 
         print("Invalid model name, exiting...")
         exit()
 
-    modules=list(model_ft.children())[:-1]
-    feature_extractor = nn.Sequential(*modules)
+    if model_name == "vgg":
+        del model_ft.classifier[6]
+        feature_extractor = model_ft
+    else:
+        modules=list(model_ft.children())[:-1]
+        feature_extractor = nn.Sequential(*modules)
 
     return feature_extractor, input_size, num_ftrs
 
@@ -99,3 +104,27 @@ def optim_step(optimizer, optim_type, step, i):
         optimizer.step()
 
     return optimizer
+
+def fft(img):
+    img = torch.from_numpy(img).to(torch.float32)
+    img = torch.cat([img[:, :, None], torch.zeros_like(img[:, :, None])], dim=-1).to(torch.float32)
+    fft = torch.fft(img, 2)
+    fft_r = fft[:, :, 0]
+    fft_i = fft[:, :, 1]
+    ffn =torch.sqrt(fft_r ** 2 + fft_i ** 2)
+    c = 255.0 / torch.log(1 + ffn.max())
+    ffn = c * torch.log(1 + ffn).numpy()
+    return ffn
+
+def to_0_1(arr_or_tensor):
+    """scales a tensor/array to [0, 1] values:
+    (x - min(x)) / (max(x) - min(x))
+    Args:
+        arr_or_tensor (torch.Tensor or np.array): input tensor to scale
+    Returns:
+        torch.Tensor or np.array: scaled tensor
+    """
+
+    return (arr_or_tensor - arr_or_tensor.min()) / (
+        arr_or_tensor.max() - arr_or_tensor.min()
+    )
