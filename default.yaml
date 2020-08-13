@@ -1,12 +1,12 @@
 experiment:
-  name: recap_5b_adam_mlX_pca_cl3
+  name: infogan_dcgan_film01_64_spr
   exp_dir: /scratch/jassiene/clouds/experiments
-  img_path: /scratch/sankarak/images/clouds.sif
-  repeat: 5
+  img_path: /scratch/jassiene/images/new_clouds.sif
+  repeat: 10
 runs:
   - sbatch:
-      runtime: "20:00:00"
-      message: recap_5b_adam_mlX_pca_cl3
+      runtime: "02:00:00"
+      message: infogan_dcgan_film01_64_spr
       conf_name: gan_weights
       cpu: 8
       gpu: "gpu:1"
@@ -17,30 +17,33 @@ runs:
         disc_size: 64
         n_blocks: 5
       data:
-        path: /scratch/sankarak/data/low_clouds/low_clouds_pca_095_cl3
-        with_stats: false
+        path: "/scratch/jassiene/data/low_clouds/full_dataset"
+        with_stats: true
         noq: false
-        load_limit: -1
+        load_limit: 1000
       val:
-        infer_every: 20 # How often to infer validation images
+        infer_every: 100 # How often to infer validation images
         nb_of_inferences: 3 # no of inferences (generated imgs) per validation sample (input + real_img)
       train:
-        batch_size: 20
+        batch_size: 600
         num_D_accumulations: 1
         n_epochs: 10001
         num_workers: 12
         n_in_mem: 8
-        with_stats: false
+        with_stats: true
         save_every: 500
-        infer_every: 20
+        infer_every: 100
         feature_extractor_loss: false
         lambda_gan: 1 # Gan loss scaling constant
         lambda_L: # Matching loss scaling constant
           sample: list
-          from: [1, 2, 3, 4, 5] 
+          from: [1, 2, 3, 4, 5]
+        lambda_infogan: # Matching loss scaling constant
+          sample: list
+          from: [1, 2, 3, 4, 5]
         lr_d:
           sample: list
-          from: [0.000001, 0.000002, 0.000003, 0.000004, 0.000005]
+          from: [0.01, 0.001, 0.0001, 0.00001]
         lr_g:
           sample: list
-          from: [0.0001, 0.0002, 0.0003, 0.0004, 0.0005]
+          from: [0.1, 0.01, 0.001, 0.0001]
