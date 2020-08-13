@@ -66,7 +66,13 @@ TRAIN_FILENAME_PREFIX = "train_"
 
 data_args["load_limit"] = -1
 val_args["set_size"] = 128
-#train_args["batch_size"] = 1000
+train_args["batch_size"] = 50
+train_args["feature_extractor_model"] = "resnet18"
+train_args["use_pretrained_ft"] = False
+train_args["hidden_features"] = 32
+train_args["freeze_ft"] = False
+train_args["freeze_first_n"] = 0.5
+train_args["num_metos"] = int(args.number_targets)
 dataset_transforms, img_transforms = get_transforms(data_args)
 clouds = data.LowClouds(data_args["path"], data_args["load_limit"], transform=dataset_transforms, device=device, img_transforms=img_transforms)
 nb_images = len(clouds)
@@ -77,8 +83,6 @@ val_loader = DataLoader(val_clouds, batch_size=train_args["batch_size"])
 
 log_csv_file = pd.DataFrame(columns=["Epoch", "Discriminator_loss", "Generator_loss", "Matching_loss"])
 
-train_args["hidden_features"] = 32
-train_args["num_metos"] = int(args.number_targets)
 val_args["infer_every"] = 20
 model = MetosRegressor(train_args, device).to(device)
 criterion = nn.MSELoss()
