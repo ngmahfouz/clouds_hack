@@ -19,7 +19,9 @@ from film import FiLM
 import data
 from preprocessing import ReplaceNans, get_transforms
 
-# python3 dcgan.py --dataset low_clouds --outf out_dcgan_lc_film_0_64 --dataroot data_dcgan --cuda --niter 200
+# python3 dcgan.py --dataset low_clouds --outf out_dcgan_lc_film_0_64 --dataroot data_dcgan --cuda --niter 200 --film_layers 1,2
+# python3 dcgan.py --dataset low_clouds --outf check_dcgan_1_64 --dataroot data_dcgan --cuda --niter 200
+# python3 dcgan.py --dataset low_clouds --outf foo --dataroot data_dcgan --cuda --niter 200 --film_layers 1,2
 # python3 dcgan.py --dataset low_clouds --outf out_dcgan_lc_film_128 --dataroot data_dcgan --cuda --niter 200 --imageSize 128
 
 parser = argparse.ArgumentParser()
@@ -33,7 +35,7 @@ parser.add_argument('--ngf', type=int, default=64)
 parser.add_argument('--ndf', type=int, default=64)
 parser.add_argument('--niter', type=int, default=25, help='number of epochs to train for')
 parser.add_argument('--lrg', type=float, default=0.0002, help='generator learning rate, default=0.0002')
-parser.add_argument('--lrd', type=float, default=0.00001, help='discriminator learning rate, default=0.0002')
+parser.add_argument('--lrd', type=float, default=0.0001, help='discriminator learning rate, default=0.0002')
 parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
 parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
@@ -112,13 +114,10 @@ elif opt.dataset == 'mnist':
         nc=1
 
 elif opt.dataset == 'low_clouds':
-        dataset_transforms = get_transforms(data_args)
-        img_transforms = transforms.Compose([
-                               transforms.ToPILImage(),
-                               transforms.Resize(opt.imageSize),
-                               transforms.ToTensor(),
-                               transforms.Normalize((0.5,), (0.5,)),
-                           ])
+        dataset_transforms, img_transforms = get_transforms(data_args)
+        
+        print("Dataset transforms : ", dataset_transforms)
+        print("Img transforms : ", img_transforms)
         dataset = data.LowClouds(data_args["path"], data_args["load_limit"], transform=dataset_transforms, device=None, img_transforms=img_transforms)
         nc=1
 
@@ -138,7 +137,7 @@ ndf = int(opt.ndf)
 if opt.film_layers == "":
     layers_to_film = []
 else:
-    layers_to_film = [int(item) for item in opt.film_layers.split(',')]
+    layers_to_film = [int(item) for item in opt.film_layers.split('a')]
 
 
 # custom weights initialization called on netG and netD
@@ -322,6 +321,11 @@ fake_label = 0
 optimizerD = optim.Adam(netD.parameters(), lr=opt.lrd, betas=(opt.beta1, 0.999))
 optimizerG = optim.Adam(netG.parameters(), lr=opt.lrg, betas=(opt.beta1, 0.999))
 
+print("Generator : ", netG)
+print("Discriminator : ", netD)
+print("Generator optimizer : ", optimizerG)
+print("Discriminator optimizer : ", optimizerD)
+
 for epoch in range(opt.niter):
     for i, data in enumerate(dataloader, 0):
         ############################
@@ -368,7 +372,7 @@ for epoch in range(opt.niter):
 
         print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f'
               % (epoch, opt.niter, i, len(dataloader),
-                 errD.item(), errG.item(), D_x, D_G_z1, D_G_z2))
+                 errD.item(), errG.item(), D_x, D_G_z1, D_G_z2), flush=True)
         if i % 100 == 0:
             vutils.save_image(real_cpu,
                     '%s/real_samples.png' % opt.outf,
