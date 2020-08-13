@@ -9,16 +9,7 @@ import torch.nn as nn
 from addict import Dict
 import utils
 
-#!/usr/bin/env python
-"""
-
-
-2020-03-03 09:08:28
-"""
-import torch
-import torch.nn as nn
-from addict import Dict
-import utils
+from utils import NormalNLLLoss, noise_sample
 
 def train_dcgan(models, iterator, optimizers, loss_fun, device, train_args, model_args, elapsed_epochs, feature_extraction=None, log_this_epoch=False):
 
@@ -95,15 +86,20 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
     noise_dim = model_args["noise_dim"]
     disc_step = train_args["num_D_accumulations"]
 
-    epoch_losses = Dict({"d": 0, "g": 0, "matching": 0})
+    epoch_losses = Dict({"d": 0, "g": 0, "matching": 0, "mi_dis" : 0, "mi_con" : 0})
     models.g.train()
     models.d.train()
     iterator_len = len(iterator)
     disc_noise = torch.randn((iterator_len, disc_step, batch_size, noise_dim)).to(device)
     gen_noise = torch.randn((iterator_len, batch_size, noise_dim)).to(device)
 
+    # Loss for discrete latent code.
+    criterionQ_dis = nn.CrossEntropyLoss()
+    # Loss for continuous latent code.
+    criterionQ_con = NormalNLLLoss()
+
     for idx, sample in enumerate(iterator):
-        losses = Dict({"d": 0, "g": 0, "matching": 0})
+        losses = Dict({"d": 0, "g": 0, "matching": 0, "mi_dis" : 0, "mi_con" : 0})
         x = sample["metos"]#.to(device)
         y = sample["real_imgs"]#s.to(device)
 
@@ -112,7 +108,11 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
         for k in range(disc_step):
             optimizers.d.zero_grad()
             #noise = torch.randn(x.shape[0], noise_dim).to(device)
-            noise = disc_noise[idx, k, :x.shape[0]] #x.shape[0] represents the true batch_size (useful for the last batch especially)
+            if model_args["infogan"]:
+                noise, idx = noise_sample(model_args['num_dis_c'], model_args['dis_c_dim'], model_args['num_con_c'], model_args['num_z'], x.shape[0], device)
+                noise = noise.squeeze()
+            else:
+                noise = disc_noise[idx, k, :x.shape[0]] #x.shape[0] represents the true batch_size (useful for the last batch especially)
             y_hat = models.g(x, noise)
             losses.d = models.d.compute_loss(y, 1) + models.d.compute_loss(y_hat.detach(), 0)
 
@@ -144,7 +144,26 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
             feature_maps_y_hat = feature_extraction["extractor"](rgb_y_hat)
             feature_maps_y = feature_extraction["extractor"](rgb_y)
             losses.matching = loss_fun(feature_maps_y_hat, feature_maps_y)
-        (train_args["lambda_gan"] * losses.g + train_args["lambda_L"] * losses.matching).backward()
+
+        total_loss_g = train_args["lambda_gan"] * losses.g + train_args["lambda_L"] * losses.matching
+
+        if model_args["infogan"]:
+            models.d.discriminator_head = False
+            q_logits, q_mu, q_var = models.d(y_hat)
+            target = torch.LongTensor(idx).to(device)
+            dis_loss = 0
+            import pdb
+            #pdb.set_trace()
+            for j in range(model_args['num_dis_c']):
+                dis_loss += criterionQ_dis(q_logits[:, j*model_args['dis_c_dim'] : j*model_args['dis_c_dim'] + model_args['dis_c_dim']], target[j])
+            con_loss = 0
+            if (model_args['num_con_c'] != 0):
+                con_loss = criterionQ_con(noise[:, model_args['num_z']+ model_args['num_dis_c']*model_args['dis_c_dim'] : ].view(-1, model_args['num_con_c']), q_mu, q_var)*0.1
+
+            losses.mi_dis, losses.mi_con = dis_loss, con_loss
+            total_loss_g+= train_args["lambda_infogan"] * (dis_loss + con_loss)
+
+        total_loss_g.backward()
 
         optimizers.g = utils.optim_step(
             optimizers.g, train_args["optimizer"], total_steps, idx

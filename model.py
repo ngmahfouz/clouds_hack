@@ -12,6 +12,7 @@ from film import FiLM
 import math
 from torchvision import models, transforms
 import utils
+import torch.nn.functional as F
 
 class Deconvolver(nn.Module):
     def __init__(self, n_in, n_out, n_blocks=4, depth_increase_factor=2, noise_dim=2):
@@ -59,12 +60,13 @@ class UNetModule(nn.Module):
         return layers(x)
 
 class DCGANDiscriminator(nn.Module):
-    def __init__(self, img_size=128, ndf=64, nc=1, use_spectral_norm=True):
+    def __init__(self, img_size=128, ndf=64, nc=1, use_spectral_norm=True, discrete_latent_dim=10, continuous_latent_dim=1):
         super().__init__()
 
         self.log_first_out_channels = int(math.log2(img_size)) - 3 # For 64=2^6 the first output is 8 = 2^3 . For 128 = 2^7 it's 16=2^4 . We remove 3 each time
         cblocks_list = []
         self.criterion = nn.BCELoss()
+        self.discriminator_head = True
         
         stride = 2
         padding = 1
@@ -89,13 +91,43 @@ class DCGANDiscriminator(nn.Module):
             cblocks_list.append(nn.LeakyReLU(0.2, inplace=True))
             prev_out_channels = current_out_channels
 
+        self.init_q_head(current_out_channels, discrete_latent_dim, continuous_latent_dim)
+
         conv_layer = nn.Conv2d(current_out_channels, 1, 4, 1, 0, bias=False)
         self.weights_init(conv_layer)
         if use_spectral_norm:
             last_conv = SpectralNorm(conv_layer)
         else:
             last_conv = conv_layer
-        self.model = nn.ModuleList(cblocks_list + [last_conv, nn.Sigmoid()])
+        self.model = nn.ModuleList(cblocks_list)
+        self.disc_head = nn.Sequential(last_conv, nn.Sigmoid())
+
+    def init_q_head(self, feature_maps_depth=512, discrete_latent_dim=10, continuous_latent_dim=1):
+        i = feature_maps_depth
+        cblocks_list = []
+        stride = 1
+        padding = 0
+        while i != 256:
+            current_out_channels = int(i / 2)
+            conv_layer = nn.Conv2d(i, current_out_channels, 1, stride, padding, bias=False)
+            self.weights_init(conv_layer)
+            cblocks_list.append(conv_layer)
+
+            bn = nn.BatchNorm2d(current_out_channels)
+            self.weights_init(bn)
+            cblocks_list.append(bn)
+
+            i = current_out_channels
+        
+        self.q_conv_blocks = nn.ModuleList(cblocks_list)
+
+        self.q_conv1 = nn.Conv2d(current_out_channels, 128, 4, 1, 0, bias=False)
+
+        self.q_conv_disc = nn.Conv2d(128, discrete_latent_dim, 1)
+
+        self.q_conv_mu = nn.Conv2d(128, continuous_latent_dim, 1)
+        self.q_conv_var = nn.Conv2d(128, continuous_latent_dim, 1)
+
 
     def weights_init(self, m):
         classname = m.__class__.__name__
@@ -109,15 +141,37 @@ class DCGANDiscriminator(nn.Module):
     def compute_loss(self, x, gt):
         """Computes the BCELoss between model output and scalar gt"""
         label = torch.full((x.shape[0],), gt, device=x.device)
+        self.discriminator_head = True
         loss = self.criterion(self.forward(x), label)
         return loss
+
+    def qhead_forward(self, x):
+
+        for layer in self.q_conv_blocks:
+            x = layer(x)
+
+        x = F.leaky_relu(self.q_conv1(x), 0.1, inplace=True)
+
+        disc_logits = self.q_conv_disc(x).squeeze()
+
+        # Not used during training for celeba dataset.
+        mu = self.q_conv_mu(x).squeeze()
+        var = torch.exp(self.q_conv_var(x).squeeze())
+
+        return disc_logits, mu, var
     
     def forward(self, input):
         output = input
         for layer in self.model:
             output = layer(output)
 
-        return output.view(-1, 1).squeeze(1)
+        if self.discriminator_head:
+            output = self.disc_head(output)
+            return output.view(-1, 1).squeeze(1)
+
+        else:
+            return self.qhead_forward(output)
+
 
 
 class DCGANGenerator(nn.Module):
@@ -162,7 +216,7 @@ class MetosRegressor(nn.Module):
     def __init__(self, train_args, device):
         super().__init__()
         self.device = device
-        feature_extractor, feature_extractor_input_size, self.num_features = utils.initialize_model(train_args["feature_extractor_model"])
+        feature_extractor, feature_extractor_input_size, self.num_features = utils.initialize_model(train_args["feature_extractor_model"], feature_extract=train_args["freeze_ft"], use_pretrained=train_args["use_pretrained_ft"], freeze_first_n=train_args["freeze_first_n"])
         feature_extractor = feature_extractor.to(device)
         feature_extractor_transforms = transforms.Compose([transforms.ToPILImage(),
                                     transforms.Resize((feature_extractor_input_size, feature_extractor_input_size)),

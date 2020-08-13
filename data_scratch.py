@@ -33,6 +33,7 @@ parser.add_argument("-o", "--output_dir", type=str, help="Where to save files", 
 parser.add_argument("-c", "--config_file", type=str, help="YAML configuration file", default="default_training_config.yaml")
 
 args = parser.parse_args()
+os.makedirs(args.output_dir, exist_ok=True)
 
 importlib.reload(data)
 importlib.reload(model)
@@ -88,7 +89,9 @@ else:
     feature_extraction = None
 
 if model_args["discriminator"] == "dcgan":
-    disc = model.DCGANDiscriminator(data_args["image_size"], model_args["ndf"], model_args["nc"])
+    discrete_latent_dim = model_args["num_dis_c"] * model_args["dis_c_dim"]
+    continuous_latent_dim = model_args["num_con_c"]
+    disc = model.DCGANDiscriminator(data_args["image_size"], model_args["ndf"], model_args["nc"], model_args["spectral_norm"], discrete_latent_dim, continuous_latent_dim)
 else:
     disc = MultiDiscriminator(in_channels=1, device=device)
 
@@ -102,7 +105,7 @@ def weights_init(m):
         m.bias.data.fill_(0)
 models = Dict({"g": dec, "d": disc})
 models.g.apply(weights_init)
-models.d.apply(weights_init)
+#models.d.apply(weights_init) d has it own initialization method because of spectral norm
 g_optimizer, d_optimizer = get_optimizers(models["g"], models["d"], Dict(yaml_config))
 optimizers = Dict({
     "g": g_optimizer,
@@ -172,16 +175,18 @@ def infer_and_save(dec, loader, i, n_infer=5, filename_prefix="val_"):
 if train_args["use_wandb"]:
     wandb.config.update(data_args)
     wandb.config.update(model_args)
-    wandb.config.update(train_args)
+    wandb.config.update(train_args, allow_val_change=True)
     wandb.config.update(val_args)
 
 def log_train_stats(epoch, avg_losses):
-    g_total_loss = (train_args["lambda_gan"] * avg_losses.g + train_args["lambda_L"] * avg_losses.matching)
+    g_total_loss = (train_args["lambda_gan"] * avg_losses.g + train_args["lambda_L"] * avg_losses.matching + train_args["lambda_infogan"] * (avg_losses.mi_dis + avg_losses.mi_con))
     wandb.log({
         "epoch" : i,
         "g/loss/total" : g_total_loss,
         "g/loss/matching" : avg_losses.matching,
         "g/loss/disc" : avg_losses.g,
+        "g/loss/mi_dis" : avg_losses.mi_dis,
+        "g/loss/mi_con" : avg_losses.mi_con,
         "d/loss" : avg_losses.d
         })
 
@@ -205,7 +210,7 @@ for i in range(train_args["n_epochs"]):
         infer_and_save(dec, train_loader, i, train_args["n_infer"], filename_prefix=TRAIN_FILENAME_PREFIX)
 
     if i % train_args["log_every"] == 0:
-        print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching}", flush=True)
+        print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching} - MI Discrete : {avg_loss.mi_dis} - MI Continuous : {avg_loss.mi_con}", flush=True)
         print("Logging...")
         log_info = pd.DataFrame(data={"Epoch" : [i], "Discriminator_loss" : [avg_loss.d], "Generator_loss" : [avg_loss.g], "Matching_loss" : [avg_loss.matching]})
         log_csv_file = log_csv_file.append(log_info)
