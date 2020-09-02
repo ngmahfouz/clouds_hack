@@ -2,7 +2,7 @@
 # -----    Model    -----
 # -----------------------
 model:
-    noise_dim: 122
+    noise_dim: 100
     n_blocks: 5 
     depth_increase_factor: 2
     generator: "dcgan" # Use DCGan or defaut Generator
@@ -13,10 +13,10 @@ model:
     film_layers: "0a1" #Layers to FiLM, separated by a comma
     spectral_norm: true
     infogan: true
-    num_dis_c : 10 # InfoGAN - Number of discrete latent code.
+    num_dis_c : 1 # InfoGAN - Number of discrete latent code.
     dis_c_dim : 10 # InfoGAN - Dimension of discrete latent code.
-    num_con_c : 2 # InfoGAN - Number of continuous latent code.
-    num_z : 20 # InfoGAN - Dimension of iicompressible noise.
+    num_con_c : 0 # InfoGAN - Number of continuous latent code.
+    num_z : 90 # InfoGAN - Dimension of iicompressible noise.
     
 # ------------------------------
 # -----    Train Params    -----
@@ -29,14 +29,14 @@ train:
     init_keys: ["g.down*", "models.d*"]
     lambda_gan: 1 # Gan loss scaling constant
     lambda_L: 2 # Matching loss scaling constant
-    lambda_infogan : 0 #Mutual Information Maximization constant
+    lambda_infogan : 1 #Mutual Information Maximization constant
     lr_d: 0.001 # Discriminator's learning rate
     lr_g: 0.01 # Generator's learning rate
     matching_loss: l1 # Which matching loss to use: l2 | l1 | weighted
     n_epochs: 10001 # How many training epochs
     num_D_accumulations: 1 # How many gradients to accumulate in current batch (different generator predictions) before doing one discriminator optimization step
     offline_losses_steps: 50 # how often to log the losses with no comet logs
-    optimizer: "adam" # one of [adam, extrasgd, extraadam]
+    optimizer: "extraadam" # one of [adam, extrasgd, extraadam]
     save_every: 100 # How often to save  the model's weights
     use_extragradient_optimizer: true # >>DEPRECATED: use optimizer instead<< use ExtragradientSGD or Adam(betas=(0.5, 0.999))
     n_infer: 1

@@ -1,12 +1,12 @@
 experiment:
-  name: infogan_dcgan_film01_64_spr
+  name: infogan_dcgan_film01_64_spr_largedisonly_10_10k_eadam
   exp_dir: /scratch/jassiene/clouds/experiments
   img_path: /scratch/jassiene/images/new_clouds.sif
   repeat: 10
 runs:
   - sbatch:
-      runtime: "02:00:00"
-      message: infogan_dcgan_film01_64_spr
+      runtime: "20:00:00"
+      message: infogan_dcgan_film01_64_spr_largedisonly_10_10k_eadam
       conf_name: gan_weights
       cpu: 8
       gpu: "gpu:1"
@@ -20,12 +20,12 @@ runs:
         path: "/scratch/jassiene/data/low_clouds/full_dataset"
         with_stats: true
         noq: false
-        load_limit: 1000
+        load_limit: 10000
       val:
         infer_every: 100 # How often to infer validation images
         nb_of_inferences: 3 # no of inferences (generated imgs) per validation sample (input + real_img)
       train:
-        batch_size: 600
+        batch_size: 780
         num_D_accumulations: 1
         n_epochs: 10001
         num_workers: 12
@@ -33,6 +33,7 @@ runs:
         with_stats: true
         save_every: 500
         infer_every: 100
+        optimizer: "extraadam"
         feature_extractor_loss: false
         lambda_gan: 1 # Gan loss scaling constant
         lambda_L: # Matching loss scaling constant
@@ -40,7 +41,7 @@ runs:
           from: [1, 2, 3, 4, 5]
         lambda_infogan: # Matching loss scaling constant
           sample: list
-          from: [1, 2, 3, 4, 5]
+          from: [4, 5]
         lr_d:
           sample: list
           from: [0.01, 0.001, 0.0001, 0.00001]
