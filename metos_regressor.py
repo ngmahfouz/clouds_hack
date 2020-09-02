@@ -28,16 +28,17 @@ from scipy.stats import spearmanr
 import matplotlib.pyplot as plt
 from preprocessing import ReplaceNans, get_transforms
 from optim import get_optimizers
+from utils import noise_sample
 import os
 
 os.environ['WANDB_MODE'] = 'dryrun'
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("-o", "--output_dir", type=str, help="Where to save files", default="./fft_multi_metos_regressor")
+parser.add_argument("-o", "--output_dir", type=str, help="Where to save files", default="./infogan_fft_multi_metos_regressor")
 parser.add_argument("-c", "--config_file", type=str, help="YAML configuration file", default="default_training_config.yaml")
 parser.add_argument("-t", "--train", type=str, help="Train the regressor or just load the previous one", default="True")
-parser.add_argument("-g", "--generator_path", type=str, help="Path to the generator to evaluate", default="state_2000.pt")
+parser.add_argument("-g", "--generator_path", type=str, help="Path to the generator to evaluate", default="infogan_state_1000.pt")
 parser.add_argument("-n", "--number_targets", type=str, help="Number of values to regress : 1 for mean, 8 for all metos", default="8")
 
 args = parser.parse_args()
@@ -71,7 +72,7 @@ train_args["feature_extractor_model"] = "resnet18"
 train_args["use_pretrained_ft"] = False
 train_args["hidden_features"] = 32
 train_args["freeze_ft"] = False
-train_args["freeze_first_n"] = 0.5
+train_args["freeze_first_n"] = -1
 train_args["num_metos"] = int(args.number_targets)
 dataset_transforms, img_transforms = get_transforms(data_args)
 clouds = data.LowClouds(data_args["path"], data_args["load_limit"], transform=dataset_transforms, device=device, img_transforms=img_transforms)
@@ -232,7 +233,15 @@ else:
     model.load_state_dict(torch.load(f"{args.output_dir}/state_best.pt"))
 
 from model import DCGANGenerator
-gan_generator = DCGANGenerator(64, layers_to_film=[0,1]).to(device)
+if model_args["infogan"]:
+    model_args["noise_dim"] = model_args["num_dis_c"] * model_args["dis_c_dim"] + model_args["num_con_c"] + model_args["num_z"]
+if model_args["film_layers"] == "":
+    layers_to_film = []
+else:
+    layers_to_film = [int(item) for item in model_args["film_layers"].split('a')]
+if model_args["generator"] == "dcgan":
+    gan_generator = DCGANGenerator(data_args["image_size"], layers_to_film, model_args["noise_dim"], model_args["ngf"], model_args["nc"]).to(device)
+#gan_generator = DCGANGenerator(64, layers_to_film=[0,1]).to(device)
 gan_generator.load_state_dict(torch.load(args.generator_path)["generator"])
 metos_regressor = model
 results = {"batch_correlations" : [], "all_metos" : [], "all_generated_imgs_metos" : [], "all_real_imgs_predicted_metos" : []}
@@ -255,7 +264,11 @@ def compute_correlation(x, y):
 for idx, sample in enumerate(val_loader):
     metos = sample["metos"]
     real_imgs = sample["real_imgs"]
-    gen_noise = torch.randn((metos.shape[0], model_args["noise_dim"])).to(device)
+    if model_args["infogan"]:
+        gen_noise, _ = noise_sample(model_args['num_dis_c'], model_args['dis_c_dim'], model_args['num_con_c'], model_args['num_z'], metos.shape[0], device)
+        gen_noise = gen_noise.squeeze()
+    else:
+        gen_noise = torch.randn((metos.shape[0], model_args["noise_dim"])).to(device)
     with torch.no_grad():
         generated_images = gan_generator(metos, gen_noise)
         generated_imgs_metos = metos_regressor(generated_images).cpu().detach().numpy()
@@ -339,7 +352,7 @@ for metos_index in range(all_metos.shape[1]):
     plt.xlim(-big_max, big_max)
     plt.ylim(-big_max, big_max)
     plt.gca().set_aspect('equal', adjustable='box')
-    plt.scatter(all_generated_imgs_metos[:, metos_index], all_metos[:,metos_index])
+    plt.scatter(all_generated_imgs_metos[:, metos_index], all_metos[:,metos_index], c="blue")
     plt.ylabel(f"Real meto {metos_index}")
     plt.xlabel(f"Generated imgs meto {metos_index} (predicted)")
     eps = diag * std
@@ -350,7 +363,7 @@ for metos_index in range(all_metos.shape[1]):
     plt.xlim(-big_max, big_max)
     plt.ylim(-big_max, big_max)
     plt.gca().set_aspect('equal', adjustable='box')
-    plt.scatter(all_generated_imgs_metos[:, metos_index], all_real_imgs_predicted_metos[:,metos_index])
+    plt.scatter(all_generated_imgs_metos[:, metos_index], all_real_imgs_predicted_metos[:,metos_index], c="blue")
     plt.ylabel(f"Real imgs meto {metos_index} (predicted)")
     plt.xlabel(f"Generated imgs meto {metos_index} (predicted)")
     eps = diag * std
@@ -361,7 +374,7 @@ for metos_index in range(all_metos.shape[1]):
     plt.xlim(-big_max, big_max)
     plt.ylim(-big_max, big_max)
     plt.gca().set_aspect('equal', adjustable='box')
-    plt.scatter(all_metos[:, metos_index], all_real_imgs_predicted_metos[:,metos_index])
+    plt.scatter(all_metos[:, metos_index], all_real_imgs_predicted_metos[:,metos_index], c="blue")
     plt.ylabel(f"Real imgs meto {metos_index} (predicted)")
     plt.xlabel(f"Real meto {metos_index}")
     eps = diag * std
