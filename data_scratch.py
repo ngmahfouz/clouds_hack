@@ -52,6 +52,8 @@ if train_args["use_wandb"]:
     import wandb
     wandb.init(project="clouds_hack", dir=args.output_dir)
 
+if model_args["infogan"]:
+    model_args["noise_dim"] = model_args["num_dis_c"] * model_args["dis_c_dim"] + model_args["num_con_c"] + model_args["num_z"]
 
 TRAIN_FILENAME_PREFIX = "train_"
 
