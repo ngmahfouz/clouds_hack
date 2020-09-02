@@ -109,7 +109,7 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
             optimizers.d.zero_grad()
             #noise = torch.randn(x.shape[0], noise_dim).to(device)
             if model_args["infogan"]:
-                noise, idx = noise_sample(model_args['num_dis_c'], model_args['dis_c_dim'], model_args['num_con_c'], model_args['num_z'], x.shape[0], device)
+                noise, dis_idx = noise_sample(model_args['num_dis_c'], model_args['dis_c_dim'], model_args['num_con_c'], model_args['num_z'], x.shape[0], device)
                 noise = noise.squeeze()
             else:
                 noise = disc_noise[idx, k, :x.shape[0]] #x.shape[0] represents the true batch_size (useful for the last batch especially)
@@ -150,13 +150,14 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
         if model_args["infogan"]:
             models.d.discriminator_head = False
             q_logits, q_mu, q_var = models.d(y_hat)
-            target = torch.LongTensor(idx).to(device)
-            dis_loss = 0
+            target = torch.LongTensor(dis_idx).to(device)
+            dis_loss = torch.zeros(total_loss_g.shape).to(device)
+            con_loss = torch.zeros(total_loss_g.shape).to(device)
             import pdb
             #pdb.set_trace()
             for j in range(model_args['num_dis_c']):
                 dis_loss += criterionQ_dis(q_logits[:, j*model_args['dis_c_dim'] : j*model_args['dis_c_dim'] + model_args['dis_c_dim']], target[j])
-            con_loss = 0
+            
             if (model_args['num_con_c'] != 0):
                 con_loss = criterionQ_con(noise[:, model_args['num_z']+ model_args['num_dis_c']*model_args['dis_c_dim'] : ].view(-1, model_args['num_con_c']), q_mu, q_var)*0.1
 

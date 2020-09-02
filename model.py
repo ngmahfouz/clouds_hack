@@ -123,10 +123,10 @@ class DCGANDiscriminator(nn.Module):
 
         self.q_conv1 = nn.Conv2d(current_out_channels, 128, 4, 1, 0, bias=False)
 
-        self.q_conv_disc = nn.Conv2d(128, discrete_latent_dim, 1)
-
-        self.q_conv_mu = nn.Conv2d(128, continuous_latent_dim, 1)
-        self.q_conv_var = nn.Conv2d(128, continuous_latent_dim, 1)
+        self.q_conv_disc = nn.Conv2d(128, discrete_latent_dim, 1) if discrete_latent_dim != 0 else None
+        
+        self.q_conv_mu = nn.Conv2d(128, continuous_latent_dim, 1) if continuous_latent_dim != 0 else None
+        self.q_conv_var = nn.Conv2d(128, continuous_latent_dim, 1) if continuous_latent_dim != 0 else None
 
 
     def weights_init(self, m):
@@ -152,11 +152,11 @@ class DCGANDiscriminator(nn.Module):
 
         x = F.leaky_relu(self.q_conv1(x), 0.1, inplace=True)
 
-        disc_logits = self.q_conv_disc(x).squeeze()
+        disc_logits = self.q_conv_disc(x).squeeze() if self.q_conv_disc is not None else None
 
         # Not used during training for celeba dataset.
-        mu = self.q_conv_mu(x).squeeze()
-        var = torch.exp(self.q_conv_var(x).squeeze())
+        mu = self.q_conv_mu(x).squeeze() if self.q_conv_mu is not None else None
+        var = torch.exp(self.q_conv_var(x).squeeze()) if self.q_conv_var is not None else None
 
         return disc_logits, mu, var
     
