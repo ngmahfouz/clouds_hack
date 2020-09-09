@@ -86,7 +86,7 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
     noise_dim = model_args["noise_dim"]
     disc_step = train_args["num_D_accumulations"]
 
-    epoch_losses = Dict({"d": 0, "g": 0, "matching": 0, "mi_dis" : 0, "mi_con" : 0})
+    epoch_losses = Dict({"d": 0, "g": 0, "matching": 0, "mi_dis" : 0, "mi_con" : 0, "metos" : 0})
     models.g.train()
     models.d.train()
     iterator_len = len(iterator)
@@ -97,9 +97,11 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
     criterionQ_dis = nn.CrossEntropyLoss()
     # Loss for continuous latent code.
     criterionQ_con = NormalNLLLoss()
+    # Loss for metos prediction
+    criterion_metos = nn.MSELoss()
 
     for idx, sample in enumerate(iterator):
-        losses = Dict({"d": 0, "g": 0, "matching": 0, "mi_dis" : 0, "mi_con" : 0})
+        losses = Dict({"d": 0, "g": 0, "matching": 0, "mi_dis" : 0, "mi_con" : 0, "metos" : 0})
         x = sample["metos"]#.to(device)
         y = sample["real_imgs"]#s.to(device)
 
@@ -113,6 +115,8 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
                 noise = noise.squeeze()
             else:
                 noise = disc_noise[idx, k, :x.shape[0]] #x.shape[0] represents the true batch_size (useful for the last batch especially)
+            if model_args["concat_noise_metos"]:
+                noise = torch.cat([noise, x], dim=1)
             y_hat = models.g(x, noise)
             losses.d = models.d.compute_loss(y, 1) + models.d.compute_loss(y_hat.detach(), 0)
 
@@ -147,22 +151,29 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
 
         total_loss_g = train_args["lambda_gan"] * losses.g + train_args["lambda_L"] * losses.matching
 
-        if model_args["infogan"]:
+        if model_args["infogan"] or model_args["predict_metos"]:
             models.d.discriminator_head = False
             q_logits, q_mu, q_var = models.d(y_hat)
             target = torch.LongTensor(dis_idx).to(device)
             dis_loss = torch.zeros(total_loss_g.shape).to(device)
             con_loss = torch.zeros(total_loss_g.shape).to(device)
+            metos_loss = torch.zeros(total_loss_g.shape).to(device)
             import pdb
             #pdb.set_trace()
             for j in range(model_args['num_dis_c']):
-                dis_loss += criterionQ_dis(q_logits[:, j*model_args['dis_c_dim'] : j*model_args['dis_c_dim'] + model_args['dis_c_dim']], target[j])
+                left_index = j*model_args['dis_c_dim']
+                dis_loss += criterionQ_dis(q_logits[:, left_index : left_index + model_args['dis_c_dim']], target[j])
             
             if (model_args['num_con_c'] != 0):
-                con_loss = criterionQ_con(noise[:, model_args['num_z']+ model_args['num_dis_c']*model_args['dis_c_dim'] : ].view(-1, model_args['num_con_c']), q_mu, q_var)*0.1
+                left_index = model_args['num_z']+ model_args['num_dis_c']*model_args['dis_c_dim']
+                con_loss = criterionQ_con(noise[:, left_index : left_index + model_args["num_con_c"]].view(-1, model_args['num_con_c']), q_mu, q_var)*0.1
 
-            losses.mi_dis, losses.mi_con = dis_loss, con_loss
+            if model_args["predict_metos"]:
+                metos_loss = criterion_metos(q_mu, x)
+
+            losses.mi_dis, losses.mi_con, losses.metos = dis_loss, con_loss, metos_loss
             total_loss_g+= train_args["lambda_infogan"] * (dis_loss + con_loss)
+            total_loss_g+= train_args["lambda_metos"] * metos_loss
 
         total_loss_g.backward()
 

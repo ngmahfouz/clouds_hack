@@ -1,12 +1,12 @@
 experiment:
-  name: infogan_dcgan_film01_64_spr_largedisonly_10_10k_eadam
+  name: infogan_dcgan_concatmetos_nofilm_64_spr_largedisonly_10_largemetos_10k_eadam
   exp_dir: /scratch/jassiene/clouds/experiments
   img_path: /scratch/jassiene/images/new_clouds.sif
   repeat: 10
 runs:
   - sbatch:
       runtime: "20:00:00"
-      message: infogan_dcgan_film01_64_spr_largedisonly_10_10k_eadam
+      message: infogan_dcgan_concatmetos_nofilm_64_spr_largedisonly_10_largemetos_10k_eadam
       conf_name: gan_weights
       cpu: 8
       gpu: "gpu:1"
@@ -39,7 +39,10 @@ runs:
         lambda_L: # Matching loss scaling constant
           sample: list
           from: [1, 2, 3, 4, 5]
-        lambda_infogan: # Matching loss scaling constant
+        lambda_infogan: # Mutual Information loss scaling constant
+          sample: list
+          from: [4, 5]
+        lambda_metos: # Mutual Information loss scaling constant
           sample: list
           from: [4, 5]
         lr_d:

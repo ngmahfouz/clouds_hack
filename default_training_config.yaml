@@ -10,13 +10,15 @@ model:
     ngf: 64
     ndf: 64
     nc: 1
-    film_layers: "0a1" #Layers to FiLM, separated by a comma
+    film_layers: "" #Layers to FiLM, separated by a "a"
     spectral_norm: true
     infogan: true
     num_dis_c : 1 # InfoGAN - Number of discrete latent code.
     dis_c_dim : 10 # InfoGAN - Dimension of discrete latent code.
     num_con_c : 0 # InfoGAN - Number of continuous latent code.
     num_z : 90 # InfoGAN - Dimension of iicompressible noise.
+    concat_noise_metos: true
+    predict_metos: true
     
 # ------------------------------
 # -----    Train Params    -----
@@ -30,6 +32,7 @@ train:
     lambda_gan: 1 # Gan loss scaling constant
     lambda_L: 2 # Matching loss scaling constant
     lambda_infogan : 1 #Mutual Information Maximization constant
+    lambda_metos : 1
     lr_d: 0.001 # Discriminator's learning rate
     lr_g: 0.01 # Generator's learning rate
     matching_loss: l1 # Which matching loss to use: l2 | l1 | weighted

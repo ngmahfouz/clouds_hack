@@ -60,7 +60,7 @@ class UNetModule(nn.Module):
         return layers(x)
 
 class DCGANDiscriminator(nn.Module):
-    def __init__(self, img_size=128, ndf=64, nc=1, use_spectral_norm=True, discrete_latent_dim=10, continuous_latent_dim=1):
+    def __init__(self, img_size=128, ndf=64, nc=1, use_spectral_norm=True, discrete_latent_dim=10, continuous_latent_dim=1, predict_metos=True):
         super().__init__()
 
         self.log_first_out_channels = int(math.log2(img_size)) - 3 # For 64=2^6 the first output is 8 = 2^3 . For 128 = 2^7 it's 16=2^4 . We remove 3 each time
@@ -91,7 +91,7 @@ class DCGANDiscriminator(nn.Module):
             cblocks_list.append(nn.LeakyReLU(0.2, inplace=True))
             prev_out_channels = current_out_channels
 
-        self.init_q_head(current_out_channels, discrete_latent_dim, continuous_latent_dim)
+        self.init_q_head(current_out_channels, discrete_latent_dim, continuous_latent_dim, predict_metos)
 
         conv_layer = nn.Conv2d(current_out_channels, 1, 4, 1, 0, bias=False)
         self.weights_init(conv_layer)
@@ -102,7 +102,7 @@ class DCGANDiscriminator(nn.Module):
         self.model = nn.ModuleList(cblocks_list)
         self.disc_head = nn.Sequential(last_conv, nn.Sigmoid())
 
-    def init_q_head(self, feature_maps_depth=512, discrete_latent_dim=10, continuous_latent_dim=1):
+    def init_q_head(self, feature_maps_depth=512, discrete_latent_dim=10, continuous_latent_dim=1, predict_metos=True):
         i = feature_maps_depth
         cblocks_list = []
         stride = 1
@@ -125,7 +125,7 @@ class DCGANDiscriminator(nn.Module):
 
         self.q_conv_disc = nn.Conv2d(128, discrete_latent_dim, 1) if discrete_latent_dim != 0 else None
         
-        self.q_conv_mu = nn.Conv2d(128, continuous_latent_dim, 1) if continuous_latent_dim != 0 else None
+        self.q_conv_mu = nn.Conv2d(128, continuous_latent_dim + predict_metos * 8, 1) if (continuous_latent_dim + predict_metos) != 0 else None
         self.q_conv_var = nn.Conv2d(128, continuous_latent_dim, 1) if continuous_latent_dim != 0 else None
 
 

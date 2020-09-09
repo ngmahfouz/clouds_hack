@@ -55,6 +55,9 @@ if train_args["use_wandb"]:
 if model_args["infogan"]:
     model_args["noise_dim"] = model_args["num_dis_c"] * model_args["dis_c_dim"] + model_args["num_con_c"] + model_args["num_z"]
 
+if model_args["concat_noise_metos"]:
+    model_args["noise_dim"]+= 8 # Add the 8 metos
+
 TRAIN_FILENAME_PREFIX = "train_"
 
 dataset_transforms, img_transforms = get_transforms(data_args)
@@ -93,7 +96,7 @@ else:
 if model_args["discriminator"] == "dcgan":
     discrete_latent_dim = model_args["num_dis_c"] * model_args["dis_c_dim"]
     continuous_latent_dim = model_args["num_con_c"]
-    disc = model.DCGANDiscriminator(data_args["image_size"], model_args["ndf"], model_args["nc"], model_args["spectral_norm"], discrete_latent_dim, continuous_latent_dim)
+    disc = model.DCGANDiscriminator(data_args["image_size"], model_args["ndf"], model_args["nc"], model_args["spectral_norm"], discrete_latent_dim, continuous_latent_dim, model_args["predict_metos"])
 else:
     disc = MultiDiscriminator(in_channels=1, device=device)
 
@@ -189,6 +192,7 @@ def log_train_stats(epoch, avg_losses):
         "g/loss/disc" : avg_losses.g,
         "g/loss/mi_dis" : avg_losses.mi_dis,
         "g/loss/mi_con" : avg_losses.mi_con,
+        "g/loss/metos" : avg_losses.metos,
         "d/loss" : avg_losses.d
         })
 
@@ -212,7 +216,7 @@ for i in range(train_args["n_epochs"]):
         infer_and_save(dec, train_loader, i, train_args["n_infer"], filename_prefix=TRAIN_FILENAME_PREFIX)
 
     if i % train_args["log_every"] == 0:
-        print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching} - MI Discrete : {avg_loss.mi_dis} - MI Continuous : {avg_loss.mi_con}", flush=True)
+        print(f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching} - MI Discrete : {avg_loss.mi_dis} - MI Continuous : {avg_loss.mi_con} - Metos : {avg_loss.metos}", flush=True)
         print("Logging...")
         log_info = pd.DataFrame(data={"Epoch" : [i], "Discriminator_loss" : [avg_loss.d], "Generator_loss" : [avg_loss.g], "Matching_loss" : [avg_loss.matching]})
         log_csv_file = log_csv_file.append(log_info)
