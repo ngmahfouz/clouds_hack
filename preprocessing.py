@@ -6,6 +6,31 @@ from torchvision import transforms
 def get_stats(data_dir):
     return np.load(Path(data_dir, "metos_stats.npy"))
 
+def get_transforms_metos_regressor(data_args):
+    dataset_stats = get_stats(data_args["path"])
+    replace_nans_transform = ReplaceNans()
+    replace_nans_transform.set_stats(dataset_stats)
+    dataset_transforms = [replace_nans_transform]
+    if data_args["with_stats"]:
+        dataset_transforms.append(Standardize(dataset_stats))
+
+    feature_extractor_input_size = 224
+    feature_extractor_transforms = transforms.Compose(
+            [
+                transforms.ToPILImage(),
+                transforms.Resize(
+                    (feature_extractor_input_size, feature_extractor_input_size)
+                ),
+                transforms.ToTensor(),
+                GrayscaleToRGB(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                )
+            ]
+        )
+
+    return transforms.Compose(dataset_transforms), feature_extractor_transforms
+
 def get_transforms(data_args):
     dataset_stats = get_stats(data_args["path"])
     replace_nans_transform = ReplaceNans()
@@ -52,3 +77,11 @@ class Standardize:
         sample["metos"] = (sample["metos"] - self.means) / self.stds
 
         return sample
+
+class GrayscaleToRGB(object):
+    
+    def __init__(self):
+        pass
+    
+    def __call__(self, sample):
+        return torch.cat([sample] * 3, dim=0)
