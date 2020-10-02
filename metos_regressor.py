@@ -26,145 +26,132 @@ import numpy as np
 import seaborn as sns
 from scipy.stats import spearmanr
 import matplotlib.pyplot as plt
-from preprocessing import ReplaceNans, get_transforms
+from preprocessing import ReplaceNans, get_transforms_metos_regressor, get_transforms
 from optim import get_optimizers
 from utils import noise_sample
 import os
+from PIL import Image
+from matplotlib import cm
 
-os.environ['WANDB_MODE'] = 'dryrun'
+os.environ["WANDB_MODE"] = "dryrun"
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("-o", "--output_dir", type=str, help="Where to save files", default="./infogan_fft_multi_metos_regressor")
-parser.add_argument("-c", "--config_file", type=str, help="YAML configuration file", default="default_training_config.yaml")
-parser.add_argument("-t", "--train", type=str, help="Train the regressor or just load the previous one", default="True")
-parser.add_argument("-g", "--generator_path", type=str, help="Path to the generator to evaluate", default="infogan_state_1000.pt")
-parser.add_argument("-n", "--number_targets", type=str, help="Number of values to regress : 1 for mean, 8 for all metos", default="8")
+parser.add_argument(
+    "-o",
+    "--output_dir",
+    type=str,
+    help="Where to save files",
+    default="./fft_mmr_best_resnet101_ft",
+)
+parser.add_argument(
+    "-c",
+    "--config_file",
+    type=str,
+    help="YAML configuration file",
+    default="default_training_config.yaml",
+)
+parser.add_argument(
+    "-t",
+    "--train",
+    type=str,
+    help="Train the regressor or just load the previous one",
+    default="True",
+)
+parser.add_argument(
+    "-g",
+    "--generator_path",
+    type=str,
+    help="Path to the generator to evaluate",
+    default="ig_state_80.pt",
+)
+parser.add_argument(
+    "-n",
+    "--number_targets",
+    type=str,
+    help="Number of values to regress : 1 for mean, 8 for all metos",
+    default="8",
+)
 
 args = parser.parse_args()
 
 os.makedirs(args.output_dir, exist_ok=True)
 
-importlib.reload(data)
-importlib.reload(model)
-importlib.reload(train)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#opts = Dict({"lr": 1e-4, "n_epochs": 10001, "save_every" : 500, "noise_dim" : 2, "disc_step" : 1})
+torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+np.random.seed(0)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# opts = Dict({"lr": 1e-4, "n_epochs": 10001, "save_every" : 500, "noise_dim" : 2, "disc_step" : 1})
 
 with open(args.config_file) as f:
     yaml_config = yaml.load(f, Loader=yaml.FullLoader)
-    data_args = yaml_config['data']
+    data_args = yaml_config["data"]
     model_args = yaml_config["model"]
+    test_args = yaml_config["test"]
     val_args = yaml_config["val"]
     train_args = yaml_config["train"]
 
 if train_args["use_wandb"]:
     import wandb
-    wandb.init(project="clouds_hack", dir=args.output_dir)
+
+    wandb.init(project="clouds_hack_mr", dir=args.output_dir)
 
 
 TRAIN_FILENAME_PREFIX = "train_"
 
 data_args["load_limit"] = -1
-val_args["set_size"] = 128
-train_args["batch_size"] = 50
-train_args["feature_extractor_model"] = "resnet18"
-train_args["use_pretrained_ft"] = False
+val_args["set_size"] = 10000
+test_args["set_size"] = 10000
+train_args["batch_size"] = 112
+train_args["feature_extractor_model"] = "resnet101"
+train_args["use_pretrained_ft"] = True
 train_args["hidden_features"] = 32
 train_args["freeze_ft"] = False
 train_args["freeze_first_n"] = -1
 train_args["num_metos"] = int(args.number_targets)
-dataset_transforms, img_transforms = get_transforms(data_args)
-clouds = data.LowClouds(data_args["path"], data_args["load_limit"], transform=dataset_transforms, device=device, img_transforms=img_transforms)
+dataset_transforms, img_transforms = get_transforms_metos_regressor(data_args)
+_, img_gan_transforms = get_transforms(data_args)
+clouds = data.LowClouds(
+    data_args["path"],
+    data_args["load_limit"],
+    transform=dataset_transforms,
+    device=None,
+    img_transforms=img_transforms,
+)
+
 nb_images = len(clouds)
-train_clouds, val_clouds = torch.utils.data.random_split(clouds, [nb_images - val_args["set_size"], val_args["set_size"]])
-train_loader = DataLoader(train_clouds, batch_size=train_args["batch_size"], pin_memory=False)
-val_loader = DataLoader(val_clouds, batch_size=train_args["batch_size"])
+train_clouds, val_clouds, test_clouds = torch.utils.data.random_split(
+    clouds,
+    [
+        nb_images - val_args["set_size"] - test_args["set_size"],
+        val_args["set_size"],
+        test_args["set_size"],
+    ],
+)
+train_loader = DataLoader(
+    train_clouds, batch_size=train_args["batch_size"], pin_memory=True
+)
+val_loader = DataLoader(
+    val_clouds, batch_size=train_args["batch_size"], pin_memory=True
+)
+test_loader = DataLoader(test_clouds, batch_size=train_args["batch_size"], pin_memory=True)
 
+log_csv_file = pd.DataFrame(
+    columns=["Epoch", "Discriminator_loss", "Generator_loss", "Matching_loss"]
+)
 
-log_csv_file = pd.DataFrame(columns=["Epoch", "Discriminator_loss", "Generator_loss", "Matching_loss"])
-
-val_args["infer_every"] = 20
+val_args["infer_every"] = 10
 model = MetosRegressor(train_args, device).to(device)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=1e-3, betas=(0.5, 0.999))
-
-
-def save(generator, discriminator, optimizers, output_dir, step=0):
-    state = {
-        "step": step,
-        "generator": generator.state_dict(),
-        "discriminator": discriminator.state_dict(),
-        "d_optimizer": optimizers.d.state_dict(),
-        "g_optimizer": optimizers.g.state_dict(),
-    }
-    torch.save(state, f"{output_dir}/state_{step}.pt")
-    torch.save(state, f"{output_dir}/state_latest.pt")
-    if train_args["use_wandb"]:
-        wandb.save(f"{output_dir}/state_{step}.pt")
-
-def infer(generator, x, noise_dim, device):
-    noise = torch.randn(x.shape[0], noise_dim).to(device)
-    return generator(x, noise)
-
-
-def infer_and_save(dec, loader, i, n_infer=5, filename_prefix="val_"):
-    for sample in loader:
-        x = sample["metos"].to(device)
-        y = sample["real_imgs"].to(device)
-
-        #If we do inference on the training set, no need to generate (large) training batch_size images
-        if filename_prefix == TRAIN_FILENAME_PREFIX:
-            x = x[:val_args["set_size"]]
-            y = y[:val_args["set_size"]]
-
-        y_mean = y.mean(0)
-        print("L1 Loss of the mean image : ", ((y_mean - y).abs()).mean(), flush=True)
-        print("Standard deviation of the mean image : ", y_mean.std(), flush=True)
-
-        if i == 0:
-            save_image(y, f"{args.output_dir}/original_imgs_{i}.png")
-            save_image(y_mean, f"{args.output_dir}/mean_imgs_{i}.png")
-            # wandb.save(f"{args.output_dir}/original_imgs_{i}.png")
-            # wandb.save(f"{args.output_dir}/mean_imgs_{i}.png")
-            if train_args["use_wandb"]:
-                wandb.log({
-                    "epoch" : i,
-                    "ground_truth" : [wandb.Image(j) for j in y],
-                    "mean_image" : wandb.Image(y_mean)
-                })
-        y_hats = []
-        for j in range(n_infer):
-            y_hats.append(infer(dec, x, model_args["noise_dim"], device))
-
-        y_hats = torch.cat(y_hats, axis=0)
-        print("Standard deviation of the first image : ", y_hats[0].std(), flush=True)
-        save_image(y_hats, f"{args.output_dir}/{filename_prefix}predicted_imgs_{i}-{j}.png", normalize=True)
-        # wandb.save(f"{args.output_dir}/{filename_prefix}predicted_imgs_{i}-{j}.png")
-        if train_args["use_wandb"]:
-            wandb.log({
-                "predicted" : [wandb.Image(j) for j in y_hats]
-            })
-
-        #If we do inference on the training set, no need to generate images on multiple batches
-        if filename_prefix == TRAIN_FILENAME_PREFIX:
-            break
 
 if train_args["use_wandb"]:
     wandb.config.update(data_args)
     wandb.config.update(model_args)
     wandb.config.update(train_args)
     wandb.config.update(val_args, allow_val_change=True)
-
-def log_train_stats(epoch, avg_losses):
-    g_total_loss = (train_args["lambda_gan"] * avg_losses.g + train_args["lambda_L"] * avg_losses.matching)
-    wandb.log({
-        "epoch" : i,
-        "g/loss/total" : g_total_loss,
-        "g/loss/matching" : avg_losses.matching,
-        "g/loss/disc" : avg_losses.g,
-        "d/loss" : avg_losses.d
-        })
 
 previous_best_val_loss = None
 if args.train == "True":
@@ -187,133 +174,189 @@ if args.train == "True":
             loss.backward()
             optimizer.step()
 
-            current_epoch_loss+= loss.item()
-            #wandb.log({"step" : i*len(train_loader) + idx, "metos_stats/min" : x.min()})
-            #wandb.log({"step" : i*len(train_loader) + idx, "metos_stats/max" : x.max()})
+            current_epoch_loss += loss.item()
+            # wandb.log({"step" : i*len(train_loader) + idx, "metos_stats/min" : x.min()})
+            # wandb.log({"step" : i*len(train_loader) + idx, "metos_stats/max" : x.max()})
 
-        current_epoch_loss/= len(train_loader)
+        current_epoch_loss /= len(train_loader)
         print(f"Epoch {i+1} loss : {current_epoch_loss}", flush=True)
-        wandb.log({"epoch" : i, "loss/train" : current_epoch_loss})
+        wandb.log({"epoch": i, "loss/train": current_epoch_loss})
+        
 
         if i % val_args["infer_every"] == 0:
             model.eval()
             current_epoch_loss = 0
+            optimizer.zero_grad()
             print("====== VALIDATION INFERENCE =======")
 
-            for idx, sample in enumerate(val_loader):
-                y = sample["metos"].to(device)
-                x = sample["real_imgs"].to(device)
+            with torch.no_grad():
 
-                # If the metos regressor is uni-output, the target will be the mean of the 8 metos rather than all of them
-                if train_args["num_metos"] == 1:
-                    y = y.mean(dim=1, keepdims=True)
+                for idx, sample in enumerate(val_loader):
+                    y = sample["metos"].to(device)
+                    x = sample["real_imgs"].to(device)
 
-                y_hat = model(x)
-                loss = criterion(y_hat, y)
+                    # If the metos regressor is uni-output, the target will be the mean of the 8 metos rather than all of them
+                    if train_args["num_metos"] == 1:
+                        y = y.mean(dim=1, keepdims=True)
 
-                current_epoch_loss+= loss.item()
+                    y_hat = model(x)
+                    loss = criterion(y_hat, y)
 
-            current_epoch_loss/= len(val_loader)
+                    current_epoch_loss += loss.item()
+                    torch.cuda.empty_cache()
+
+            current_epoch_loss /= len(val_loader)
             if previous_best_val_loss is None:
                 previous_best_val_loss = current_epoch_loss
             print(f"Validation loss at epoch {i+1} : {current_epoch_loss}", flush=True)
-            wandb.log({"epoch" : i, "loss/valid" : current_epoch_loss})
+            wandb.log({"epoch": i, "loss/valid": current_epoch_loss})
+            wandb.log({"epoch": i, "loss/valid_zero": (y ** 2).mean()})
+            wandb.log({"epoch": i, "loss/valid_mean": ((y - y.mean(dim=0)) ** 2).mean()})
             torch.save(model.state_dict(), f"{args.output_dir}/state_{i}.pt")
             torch.save(model.state_dict(), f"{args.output_dir}/state_latest.pt")
             wandb.save(f"{args.output_dir}/state_{i}.pt")
 
             if current_epoch_loss <= previous_best_val_loss:
-                print(f"New best Validation loss : {current_epoch_loss} (previous was {previous_best_val_loss})")
+                print(
+                    f"New best Validation loss : {current_epoch_loss} (previous was {previous_best_val_loss})"
+                )
                 torch.save(model.state_dict(), f"{args.output_dir}/state_best.pt")
                 wandb.save(f"{args.output_dir}/state_best.pt")
                 previous_best_val_loss = current_epoch_loss
-        
+
 
 else:
     model.load_state_dict(torch.load(f"{args.output_dir}/state_best.pt"))
 
 from model import DCGANGenerator
+
 if model_args["infogan"]:
-    model_args["noise_dim"] = model_args["num_dis_c"] * model_args["dis_c_dim"] + model_args["num_con_c"] + model_args["num_z"]
+    model_args["noise_dim"] = (
+        model_args["num_dis_c"] * model_args["dis_c_dim"]
+        + model_args["num_con_c"]
+        + model_args["num_z"]
+    )
+if model_args["concat_noise_metos"]:
+    model_args["noise_dim"] += 8  # Add the 8 metos
 if model_args["film_layers"] == "":
     layers_to_film = []
 else:
-    layers_to_film = [int(item) for item in model_args["film_layers"].split('a')]
+    layers_to_film = [int(item) for item in model_args["film_layers"].split("a")]
 if model_args["generator"] == "dcgan":
-    gan_generator = DCGANGenerator(data_args["image_size"], layers_to_film, model_args["noise_dim"], model_args["ngf"], model_args["nc"]).to(device)
-#gan_generator = DCGANGenerator(64, layers_to_film=[0,1]).to(device)
+    gan_generator = DCGANGenerator(
+        data_args["image_size"],
+        layers_to_film,
+        model_args["noise_dim"],
+        model_args["ngf"],
+        model_args["nc"],
+    ).to(device)
+# gan_generator = DCGANGenerator(64, layers_to_film=[0,1]).to(device)
 gan_generator.load_state_dict(torch.load(args.generator_path)["generator"])
 metos_regressor = model
-results = {"batch_correlations" : [], "all_metos" : [], "all_generated_imgs_metos" : [], "all_real_imgs_predicted_metos" : []}
+results = {
+    "batch_correlations": [],
+    "all_metos": [],
+    "all_generated_imgs_metos": [],
+    "all_real_imgs_predicted_metos": [],
+}
+
 
 def compute_correlation(x, y):
-    #x,y have shape (batch_size,num_metos)
+    # x,y have shape (batch_size,num_metos)
     correlations = []
     corrs = []
     pvalues = []
     for metos_index in range(x.shape[1]):
-        df = pd.DataFrame({"x": x[:,metos_index], "y": y[:,metos_index]})
+        df = pd.DataFrame({"x": x[:, metos_index], "y": y[:, metos_index]})
         correlation_results = spearmanr(df)
         correlations.append(correlation_results)
         corrs.append(correlation_results.correlation)
         pvalues.append(correlation_results.pvalue)
 
-    correlation_results_df = pd.DataFrame({"Correlation" : corrs, "P-value" : pvalues})
+    correlation_results_df = pd.DataFrame({"Correlation": corrs, "P-value": pvalues})
     return correlations, correlation_results_df
 
-for idx, sample in enumerate(val_loader):
-    metos = sample["metos"]
-    real_imgs = sample["real_imgs"]
+
+plt.rcParams.update({"font.size": 5})
+metos_regressor.eval()
+for idx, sample in enumerate(test_loader):
+    metos = sample["metos"].to(device)
+    real_imgs = sample["real_imgs"].to(device)
     if model_args["infogan"]:
-        gen_noise, _ = noise_sample(model_args['num_dis_c'], model_args['dis_c_dim'], model_args['num_con_c'], model_args['num_z'], metos.shape[0], device)
+        gen_noise, _ = noise_sample(
+            model_args["num_dis_c"],
+            model_args["dis_c_dim"],
+            model_args["num_con_c"],
+            model_args["num_z"],
+            metos.shape[0],
+            device,
+        )
         gen_noise = gen_noise.squeeze()
     else:
         gen_noise = torch.randn((metos.shape[0], model_args["noise_dim"])).to(device)
+    if model_args["concat_noise_metos"]:
+        gen_noise = torch.cat([gen_noise, metos], dim=1)
     with torch.no_grad():
         generated_images = gan_generator(metos, gen_noise)
-        generated_imgs_metos = metos_regressor(generated_images).cpu().detach().numpy()
+        transformed_generated_images = []
+        for generated_image in generated_images:
+            transformed_generated_images.append(img_transforms(generated_image.cpu()))
+        transformed_generated_images = torch.stack(transformed_generated_images).to(device)
+        generated_imgs_metos = metos_regressor(transformed_generated_images).cpu().detach().numpy()
         real_imgs_predicted_metos = metos_regressor(real_imgs).cpu().detach().numpy()
 
     metos = metos.cpu().detach().numpy()
 
-    #Uni-output regressor case : the target is the mean rather than all 8 metos
+    # Uni-output regressor case : the target is the mean rather than all 8 metos
     if train_args["num_metos"] == 1:
         generated_imgs_metos = generated_imgs_metos.mean(axis=1, keepdims=True)
-        real_imgs_predicted_metos =real_imgs_predicted_metos.mean(axis=1, keepdims=True)
+        real_imgs_predicted_metos = real_imgs_predicted_metos.mean(
+            axis=1, keepdims=True
+        )
         metos = metos.mean(axis=1, keepdims=True)
-    
+
     results["all_metos"].append(metos)
     results["all_generated_imgs_metos"].append(generated_imgs_metos)
     results["all_real_imgs_predicted_metos"].append(real_imgs_predicted_metos)
 
     real_generated_correlation = compute_correlation(generated_imgs_metos, metos)
-    predicted_generated_correlation = compute_correlation(generated_imgs_metos, real_imgs_predicted_metos)
+    predicted_generated_correlation = compute_correlation(
+        generated_imgs_metos, real_imgs_predicted_metos
+    )
     real_predicted_correlation = compute_correlation(real_imgs_predicted_metos, metos)
-    results["batch_correlations"].append({
-        "real_generated_correlation" : real_generated_correlation,
-        "predicted_generated_correlation" : predicted_generated_correlation,
-        "real_predicted_correlation" : real_predicted_correlation
-    })
+    results["batch_correlations"].append(
+        {
+            "real_generated_correlation": real_generated_correlation,
+            "predicted_generated_correlation": predicted_generated_correlation,
+            "real_predicted_correlation": real_predicted_correlation,
+        }
+    )
 
     for i in range(min(10, generated_images.shape[0])):
-        import pdb
-        
-        image = {"real" : utils.to_0_1(real_imgs[i]).squeeze(0).cpu().detach().numpy(), "fake" : utils.to_0_1(generated_images[i]).squeeze(0).cpu().detach().numpy()}
-        fft_f = utils.fft(image['fake'])
-        fft_r = utils.fft(image['real'])
+
+        image = {
+            "real": utils.to_0_1(real_imgs[i]).squeeze(0).cpu().detach().numpy(),
+            "fake": utils.to_0_1(generated_images[i]).squeeze(0).cpu().detach().numpy(),
+        }
+
+        real_img = Image.fromarray(image["real"][0])
+        real_img = real_img.resize((image["fake"].shape[0], image["fake"].shape[0]), Image.ANTIALIAS)
+        image["real"] = np.array(real_img)
+        fft_f = utils.fft(image["fake"])
+        fft_r = utils.fft(image["real"])
 
         plt.subplot(2, 4, 1)
-        plt.imshow(image['real'], cmap="gray")
-        plt.title('real image')
+        plt.imshow(image["real"], cmap="gray")
+        plt.title("real image")
 
         plt.subplot(2, 4, 2)
-        
-        plt.imshow(fft_r,  cmap="gray")
-        plt.title('DFT of real image')
+
+        plt.imshow(fft_r, cmap="gray")
+        plt.title("DFT of real image")
 
         plt.subplot(2, 4, 3)
         sns.distplot(fft_r.flatten())
-        plt.title('Histogram of the DFT of the real image')
+        plt.title("Histogram of the DFT of the real image")
 
         ax = plt.subplot(2, 4, 4)
         sns.distplot(fft_r.flatten(), ax=ax)
@@ -321,19 +364,19 @@ for idx, sample in enumerate(val_loader):
         plt.title("Histograms of the DFTs of the real vs generated images")
 
         plt.subplot(2, 4, 5)
-        
-        plt.imshow(image['fake'], cmap="gray")
-        plt.title('generated image')
+
+        plt.imshow(image["fake"], cmap="gray")
+        plt.title("generated image")
 
         plt.subplot(2, 4, 6)
         plt.imshow(fft_f, cmap="gray")
-        plt.title('DFT of generated image')
+        plt.title("DFT of generated image")
 
         plt.subplot(2, 4, 7)
         sns.distplot(fft_f.flatten())
-        plt.title('Histogram of the DFT of the generated image')
+        plt.title("Histogram of the DFT of the generated image")
 
-        fft_d = np.linalg.norm(fft_f - fft_r)/fft_f.size()
+        fft_d = np.linalg.norm(fft_f - fft_r) / fft_f.size()
         print("distance between the two DFTs = ", fft_d)
         plt.savefig(f"{args.output_dir}/fft_{idx}_{i}.png")
         plt.close()
@@ -343,16 +386,22 @@ all_generated_imgs_metos = np.concatenate(results["all_generated_imgs_metos"])
 all_real_imgs_predicted_metos = np.concatenate(results["all_real_imgs_predicted_metos"])
 
 for metos_index in range(all_metos.shape[1]):
-    
-    big_max = max(np.abs(all_metos).max(), np.abs(all_generated_imgs_metos).max(), np.abs(all_real_imgs_predicted_metos).max())
+
+    big_max = max(
+        np.abs(all_metos).max(),
+        np.abs(all_generated_imgs_metos).max(),
+        np.abs(all_real_imgs_predicted_metos).max(),
+    )
     diag = np.linspace(-big_max, big_max, 100)
     std = 0.2
     alpha = 0.1
 
     plt.xlim(-big_max, big_max)
     plt.ylim(-big_max, big_max)
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.scatter(all_generated_imgs_metos[:, metos_index], all_metos[:,metos_index], c="blue")
+    plt.gca().set_aspect("equal", adjustable="box")
+    plt.scatter(
+        all_metos[:, metos_index], all_generated_imgs_metos[:, metos_index], c="blue"
+    )
     plt.ylabel(f"Real meto {metos_index}")
     plt.xlabel(f"Generated imgs meto {metos_index} (predicted)")
     eps = diag * std
@@ -362,8 +411,12 @@ for metos_index in range(all_metos.shape[1]):
 
     plt.xlim(-big_max, big_max)
     plt.ylim(-big_max, big_max)
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.scatter(all_generated_imgs_metos[:, metos_index], all_real_imgs_predicted_metos[:,metos_index], c="blue")
+    plt.gca().set_aspect("equal", adjustable="box")
+    plt.scatter(
+        all_real_imgs_predicted_metos[:, metos_index],
+        all_generated_imgs_metos[:, metos_index],
+        c="blue",
+    )
     plt.ylabel(f"Real imgs meto {metos_index} (predicted)")
     plt.xlabel(f"Generated imgs meto {metos_index} (predicted)")
     eps = diag * std
@@ -373,8 +426,12 @@ for metos_index in range(all_metos.shape[1]):
 
     plt.xlim(-big_max, big_max)
     plt.ylim(-big_max, big_max)
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.scatter(all_metos[:, metos_index], all_real_imgs_predicted_metos[:,metos_index], c="blue")
+    plt.gca().set_aspect("equal", adjustable="box")
+    plt.scatter(
+        all_metos[:, metos_index],
+        all_real_imgs_predicted_metos[:, metos_index],
+        c="blue",
+    )
     plt.ylabel(f"Real imgs meto {metos_index} (predicted)")
     plt.xlabel(f"Real meto {metos_index}")
     eps = diag * std
@@ -382,11 +439,17 @@ for metos_index in range(all_metos.shape[1]):
     plt.fill_between(diag, diag - eps, diag + eps, alpha=alpha)
     plt.savefig(f"{args.output_dir}/real_predicted_{metos_index}.png")
 
-results["real_generated_correlation"], corr_df = compute_correlation(all_generated_imgs_metos, all_metos)
+results["real_generated_correlation"], corr_df = compute_correlation(
+    all_generated_imgs_metos, all_metos
+)
 corr_df.to_csv(f"{args.output_dir}/real_generated_correlation.csv")
-results["predicted_generated_correlation"], corr_df = compute_correlation(all_generated_imgs_metos, all_real_imgs_predicted_metos)
+results["predicted_generated_correlation"], corr_df = compute_correlation(
+    all_generated_imgs_metos, all_real_imgs_predicted_metos
+)
 corr_df.to_csv(f"{args.output_dir}/predicted_generated_correlation.csv")
-results["real_predicted_correlation"], corr_df = compute_correlation(all_metos, all_real_imgs_predicted_metos)
+results["real_predicted_correlation"], corr_df = compute_correlation(
+    all_metos, all_real_imgs_predicted_metos
+)
 corr_df.to_csv(f"{args.output_dir}/real_predicted_correlation.csv")
 
 torch.save(results, f"{args.output_dir}/results.pth")
