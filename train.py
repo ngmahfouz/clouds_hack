@@ -166,10 +166,10 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
             
             if (model_args['num_con_c'] != 0):
                 left_index = model_args['num_z']+ model_args['num_dis_c']*model_args['dis_c_dim']
-                con_loss = criterionQ_con(noise[:, left_index : left_index + model_args["num_con_c"]].view(-1, model_args['num_con_c']), q_mu, q_var)*0.1
+                con_loss = criterionQ_con(noise[:, left_index : left_index + model_args["num_con_c"]].view(-1, model_args['num_con_c']), q_mu[:model_args['num_con_c']], q_var[:model_args['num_con_c']])*0.1
 
             if model_args["predict_metos"]:
-                metos_loss = criterion_metos(q_mu, x)
+                metos_loss = criterion_metos(q_mu[model_args['num_con_c']:], x)
 
             losses.mi_dis, losses.mi_con, losses.metos = dis_loss, con_loss, metos_loss
             total_loss_g+= train_args["lambda_infogan"] * (dis_loss + con_loss)
@@ -183,7 +183,11 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
 
         if log_this_epoch:
             for k in epoch_losses.keys():
-                epoch_losses[k] += losses[k].item() / len(iterator)
+                if isinstance(losses[k], (int, float)):
+                    loss_val = losses[k]
+                else:
+                    loss_val = losses[k].item()
+                epoch_losses[k] += loss_val / len(iterator)
         else:
             epoch_losses = None
 
