@@ -39,10 +39,10 @@ train:
     n_epochs: 10001 # How many training epochs
     num_D_accumulations: 1 # How many gradients to accumulate in current batch (different generator predictions) before doing one discriminator optimization step
     offline_losses_steps: 50 # how often to log the losses with no comet logs
-    optimizer: "extraadam" # one of [adam, extrasgd, extraadam]
+    optimizer: "adam" # one of [adam, extrasgd, extraadam]
     save_every: 100 # How often to save  the model's weights
     use_extragradient_optimizer: true # >>DEPRECATED: use optimizer instead<< use ExtragradientSGD or Adam(betas=(0.5, 0.999))
-    n_infer: 1
+    n_infer: 10
     log_every: 10 
     feature_extractor_loss: false
     feature_extractor_model: "resnet18"
@@ -59,7 +59,11 @@ val:
     store_images: false # Do you want to write inferred images to disk
     nb_of_inferences: 1 # no of inferences (generated imgs) per validation sample (input + real_img)
     set_size: 64
-    n_infer: 1
+    n_infer: 10
+    max_viz_images: 64 # Maximum number of images for vizualization
+
+test:
+    set_size: 64
 
 # ---------------------------
 # -----    Data Conf    -----

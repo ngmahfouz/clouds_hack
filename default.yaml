@@ -1,14 +1,14 @@
 experiment:
-  name: infogan_dcgan_concatmetos_nofilm_64_spr_largedisonly_10_largemetos_10k_eadam
+  name: final_infogan_dcgan_concatmetos_nofilm_64_spr_largedisonly_10_largemetos_100k_eadam
   exp_dir: /scratch/jassiene/clouds/experiments
   img_path: /scratch/jassiene/images/new_clouds.sif
   repeat: 10
 runs:
   - sbatch:
-      runtime: "20:00:00"
-      message: infogan_dcgan_concatmetos_nofilm_64_spr_largedisonly_10_largemetos_10k_eadam
+      runtime: "24:00:00"
+      message: final_infogan_dcgan_concatmetos_nofilm_64_spr_largedisonly_10_largemetos_100k_eadam
       conf_name: gan_weights
-      cpu: 8
+      cpu: 2
       gpu: "gpu:1"
       no_comet: false
       mem: "32GB"
@@ -20,10 +20,13 @@ runs:
         path: "/scratch/jassiene/data/low_clouds/full_dataset"
         with_stats: true
         noq: false
-        load_limit: 10000
+        load_limit: -1
       val:
-        infer_every: 100 # How often to infer validation images
-        nb_of_inferences: 3 # no of inferences (generated imgs) per validation sample (input + real_img)
+        infer_every: 10 # How often to infer validation images
+        set_size: 10000
+        nb_of_inferences: 5 # no of inferences (generated imgs) per validation sample (input + real_img)
+      test:
+        set_size: 10000
       train:
         batch_size: 780
         num_D_accumulations: 1
@@ -31,14 +34,16 @@ runs:
         num_workers: 12
         n_in_mem: 8
         with_stats: true
-        save_every: 500
-        infer_every: 100
+        save_every: 10
+        infer_every: 10
         optimizer: "extraadam"
         feature_extractor_loss: false
-        lambda_gan: 1 # Gan loss scaling constant
+        lambda_gan: # Gan loss scaling constants
+          sample: list
+          from: [1, 2, 3, 4, 5] 
         lambda_L: # Matching loss scaling constant
           sample: list
-          from: [1, 2, 3, 4, 5]
+          from: [0]
         lambda_infogan: # Mutual Information loss scaling constant
           sample: list
           from: [4, 5]
