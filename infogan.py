@@ -225,7 +225,15 @@ def infer(generator, x, noise_dim, device):
 def infer_and_save(models, loader, i, n_infer=5, filename_prefix="val_"):
     dec = models.g
     epoch_losses = Dict(
-        {"d": 0, "g": 0, "matching": 0, "mi_dis": 0, "mi_con": 0, "metos": 0}
+        {
+            "d": 0,
+            "g": 0,
+            "matching": 0,
+            "mi_dis": 0,
+            "mi_con": 0,
+            "d_metos": 0,
+            "g_metos": 0,
+        }
     )
     for batch_idx, sample in enumerate(loader):
         print(f"Index {batch_idx} {filename_prefix}")
@@ -255,13 +263,31 @@ def infer_and_save(models, loader, i, n_infer=5, filename_prefix="val_"):
         dis_idx = np.concatenate(dis_indices, axis=1)
         noise = torch.cat(noises, axis=0)
 
-
         losses = Dict(
-            {"d": 0, "g": 0, "matching": 0, "mi_dis": 0, "mi_con": 0, "metos": 0}
+            {
+                "d": 0,
+                "g": 0,
+                "matching": 0,
+                "mi_dis": 0,
+                "mi_con": 0,
+                "d_metos": 0,
+                "g_metos": 0,
+            }
         )
         losses.d = models.d.compute_loss(y, 1) + models.d.compute_loss(
             y_hats.detach(), 0
         )
+        if model_args["infogan"] or model_args["predict_metos"]:
+            criterion_metos = nn.MSELoss()
+            models.d.discriminator_head = False
+            q_logits, q_mu, q_var = models.d(y)
+            metos_loss = criterion_metos(q_mu[model_args["num_con_c"] :], x)
+            total_loss_d = (
+                train_args["lambda_gan"] * losses.d
+                + train_args["lambda_metos"] * metos_loss
+            )
+            losses.d_metos = metos_loss
+
         losses.g = models.d.compute_loss(y_hats, 1)
         loss_fun = nn.L1Loss()
         losses.matching = loss_fun(y_hat, y)
@@ -312,7 +338,7 @@ def infer_and_save(models, loader, i, n_infer=5, filename_prefix="val_"):
             if model_args["predict_metos"]:
                 metos_loss = criterion_metos(q_mu, torch.cat([x] * n_infer, axis=0))
 
-            losses.mi_dis, losses.mi_con, losses.metos = (
+            losses.mi_dis, losses.mi_con, losses.d_metos = (
                 dis_loss,
                 con_loss,
                 metos_loss,
@@ -344,7 +370,10 @@ def infer_and_save(models, loader, i, n_infer=5, filename_prefix="val_"):
             normalize=True,
             nrow=(1 + n_infer + 1),
         )
-        wandb.save(f"{args.output_dir}/{filename_prefix}predicted_imgs_{i}-{batch_idx}-{j+1}.png")
+        if train_args["use_wandb"]:
+            wandb.save(
+                f"{args.output_dir}/{filename_prefix}predicted_imgs_{i}-{batch_idx}-{j+1}.png"
+            )
 
         for k in epoch_losses.keys():
             if isinstance(losses[k], (int, float)):
@@ -372,7 +401,11 @@ def log_train_stats(epoch, avg_losses, prefix="training_"):
         train_args["lambda_gan"] * avg_losses.g
         + train_args["lambda_L"] * avg_losses.matching
         + train_args["lambda_infogan"] * (avg_losses.mi_dis + avg_losses.mi_con)
-        + train_args["lambda_metos"] * avg_loss.metos
+        + train_args["lambda_metos"] * avg_loss.g_metos
+    )
+    d_total_loss = (
+        train_args["lambda_gan"] * avg_losses.d
+        + train_args["lambda_metos"] * avg_loss.d_metos
     )
     wandb.log(
         {
@@ -382,8 +415,10 @@ def log_train_stats(epoch, avg_losses, prefix="training_"):
             f"g/{prefix}loss/disc": avg_losses.g,
             f"g/{prefix}loss/mi_dis": avg_losses.mi_dis,
             f"g/{prefix}loss/mi_con": avg_losses.mi_con,
-            f"g/{prefix}loss/metos": avg_losses.metos,
-            f"d/{prefix}loss": avg_losses.d,
+            f"g/{prefix}loss/metos": avg_losses.g_metos,
+            f"d/{prefix}loss/gan": avg_losses.d,
+            f"d/{prefix}loss/metos": avg_losses.d_metos,
+            f"d/{prefix}loss/total": d_total_loss,
         }
     )
 
@@ -427,7 +462,7 @@ for i in range(train_args["n_epochs"]):
 
     if i % train_args["log_every"] == 0:
         print(
-            f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching} - MI Discrete : {avg_loss.mi_dis} - MI Continuous : {avg_loss.mi_con} - Metos : {avg_loss.metos}",
+            f"Discriminator loss : {avg_loss.d} - Generator loss : {avg_loss.g} - Matching loss: {avg_loss.matching} - MI Discrete : {avg_loss.mi_dis} - MI Continuous : {avg_loss.mi_con} - G_Metos : {avg_loss.g_metos}, D_Metos : {avg_loss.d_metos}",
             flush=True,
         )
         print("Logging...")
