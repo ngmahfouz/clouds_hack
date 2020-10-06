@@ -86,7 +86,7 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
     noise_dim = model_args["noise_dim"]
     disc_step = train_args["num_D_accumulations"]
 
-    epoch_losses = Dict({"d": 0, "g": 0, "matching": 0, "mi_dis" : 0, "mi_con" : 0, "metos" : 0})
+    epoch_losses = Dict({"d": 0, "g": 0, "matching": 0, "mi_dis" : 0, "mi_con" : 0, "g_metos" : 0, "d_metos" : 0})
     models.g.train()
     models.d.train()
     iterator_len = len(iterator)
@@ -101,7 +101,7 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
     criterion_metos = nn.MSELoss()
 
     for idx, sample in enumerate(iterator):
-        losses = Dict({"d": 0, "g": 0, "matching": 0, "mi_dis" : 0, "mi_con" : 0, "metos" : 0})
+        losses = Dict({"d": 0, "g": 0, "matching": 0, "mi_dis" : 0, "mi_con" : 0, "g_metos" : 0, "d_metos" : 0})
         x = sample["metos"]#.to(device)
         y = sample["real_imgs"]#s.to(device)
 
@@ -118,9 +118,19 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
             if model_args["concat_noise_metos"]:
                 noise = torch.cat([noise, x], dim=1)
             y_hat = models.g(x, noise)
+            if model_args["infogan"] or model_args["predict_metos"]:
+                models.d.discriminator_head = True
             losses.d = models.d.compute_loss(y, 1) + models.d.compute_loss(y_hat.detach(), 0)
+            total_loss_d = losses.d
+            if model_args["infogan"] or model_args["predict_metos"]:
+                models.d.discriminator_head = False
+                q_logits, q_mu, q_var = models.d(y)
+                metos_loss = criterion_metos(q_mu[model_args['num_con_c']:], x)
+                total_loss_d = train_args["lambda_gan"] * losses.d + train_args["lambda_metos"] * metos_loss
+                losses.d_metos = metos_loss
+                
 
-            losses.d.backward()
+            total_loss_d.backward()
             total_steps = elapsed_epochs * iterator_len + idx * disc_step + k
             optimizers.d = utils.optim_step(
                 optimizers.d, train_args["optimizer"], total_steps, idx * disc_step + k
@@ -171,7 +181,7 @@ def train(models, iterator, optimizers, loss_fun, device, train_args, model_args
             if model_args["predict_metos"]:
                 metos_loss = criterion_metos(q_mu[model_args['num_con_c']:], x)
 
-            losses.mi_dis, losses.mi_con, losses.metos = dis_loss, con_loss, metos_loss
+            losses.mi_dis, losses.mi_con, losses.g_metos = dis_loss, con_loss, metos_loss
             total_loss_g+= train_args["lambda_infogan"] * (dis_loss + con_loss)
             total_loss_g+= train_args["lambda_metos"] * metos_loss
 
