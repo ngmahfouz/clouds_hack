@@ -1,12 +1,12 @@
 experiment:
-  name: final_infogan_dcgan_concatmetos_nofilm_64_spr_largedisonly_10_large_goodmetos_100k_eadam
+  name: final_infogan_dcgan_concatmetos_film_0a1_64_spr_largedisonly_10_largemetos_100k_eadam
   exp_dir: /scratch/jassiene/clouds/experiments
   img_path: /scratch/jassiene/images/new_clouds.sif
   repeat: 10
 runs:
   - sbatch:
       runtime: "24:00:00"
-      message: final_infogan_dcgan_concatmetos_nofilm_64_spr_largedisonly_10_large_goodmetos_100k_eadam
+      message: final_infogan_dcgan_concatmetos_film_0a1_64_spr_largedisonly_10_largemetos_100k_eadam
       conf_name: gan_weights
       cpu: 2
       gpu: "gpu:1"
@@ -16,6 +16,7 @@ runs:
       model:
         disc_size: 64
         n_blocks: 5
+        film_layers: "0a1" #Layers to FiLM, separated by a "a"
       data:
         path: "/scratch/jassiene/data/low_clouds/full_dataset"
         with_stats: true
