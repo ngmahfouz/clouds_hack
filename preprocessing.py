@@ -72,9 +72,9 @@ class Standardize:
     def __call__(self, sample):
         device = sample["metos"].device
         dtype = sample["metos"].dtype
-        self.means = torch.tensor(self.means, device=device, dtype=dtype)
-        self.stds = torch.tensor(self.stds, device=device, dtype=dtype)
-        sample["metos"] = (sample["metos"] - self.means) / self.stds
+        means = torch.tensor(self.means, device=device, dtype=dtype)
+        stds = torch.tensor(self.stds, device=device, dtype=dtype)
+        sample["metos"] = (sample["metos"] - means) / stds
 
         return sample
 
