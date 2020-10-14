@@ -15,7 +15,17 @@ It uses Generative Adversarial Networks to generate these reflectance fields con
 
 # Data
 
-The data come from the <i> MODerate resolution Imaging Spectroradiometer (MODIS) </i>
+The data come from the <i> MODerate resolution Imaging Spectroradiometer (MODIS) </i>. Each data point is made of one 128x128 grayscale cloud image and an associated set of 8 meteorological variables that are:
+
+1. Sea Surface Temperature : SST
+2. Surface pressure
+3. East-West direction wind speed
+4. North-South wind speed
+5. Estimated Inversion Strength : EIS
+6. Wind Shear
+7. Large-scale subsidence
+8. Relative Humidity at surface
+
 
 The clouds images should be contained in a single folder that we will reference as the variable `DATA_FOLDER_PATH`. It should contain 4 files:
 
@@ -55,11 +65,13 @@ You can use the configuration file `dcgan_film01.yaml`
 
 ## InfoGAN
 
-You can use the configuration file `default_training_config.yaml`
+This dataset provides a relatively small number of conditioning variables. They may not be sufficient for accurate image generation. [2] show that InfoGAN [3] can discover meaningful (in terms of clouds physics) cloud regimes. These cloud regimes can be seen (for simplification) as clusters of clouds. 
+
+To train an InfoGAN, you can use the configuration file `default_training_config.yaml`
 
 ## FiLM (Feature wise Linear Modulation)
 
-To use FiLM, you have to modify the field `film_layers` in the section `model` and specify the indices of the layers you want to FiLM separated by `a`.
+Feature-wise Linear Modulation (FiLM) [4] is a way of incorporating conditioning information (in our case the metos) into a neural network by rescaling the output of the latter by some transformation of the conditioning information. To use FiLM , you have to modify the field `film_layers` in the section `model` and specify the indices of the layers you want to FiLM separated by `a`.
 For example, if you want to FiLM the first and second layers (corresponding to indices 0 and 1), you should have in your configuration file `film_layers: "0a1"`. An example can be found in `dcgan_film01.yaml`
 
 ## Other options
@@ -116,3 +128,9 @@ This command will produce two sets of directories:
 [1] T. Yuan, H. Song, D. Hall, V. Schmidt, K. Sankaran, and Y. Bengio. Artificial intelligence
 based cloud distributor (ai-cd): probing clouds with generative adversarial networks. AGU Fall
 Meeting 2019, 2019.
+
+[2] https://eartharxiv.org/repository/view/877/
+
+[3] Chen, X., Duan, Y., Houthooft, R., Schulman, J., Sutskever, I., and Abbeel, P. InfoGAN: Interpretable Representation Learning by Information Maximizing Generative Adversarial Nets. ArXiv e-prints, June 2016.
+
+[4] Ethan Perez, Florian Strub, Harm de Vries, Vincent Dumoulin, and Aaron Courville. FiLM: Visual reasoning with a general conditioning layer. In AAAI, 2018.
